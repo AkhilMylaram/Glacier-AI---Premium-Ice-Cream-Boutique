@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Glacier AI - Premium Ice Cream Boutique",
+  "description": "A production-grade, microservices-driven ice cream storefront featuring AI flavor recommendations and real-time voice ordering.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
