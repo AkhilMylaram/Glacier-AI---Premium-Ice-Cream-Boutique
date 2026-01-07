@@ -1,19 +1,14 @@
+
 # 🍦 Catalog & Order Microservice (Resource Manager)
 
 ## 📖 Overview
-The **Catalog Service** is the central authority for Glacier AI's artisanal product database and transaction ledger. It ensures that the premium boutique experience is backed by consistent, high-fidelity data.
+The **Catalog Service** is the central authority for Glacier AI's artisanal product database and transaction ledger. It ensures that the premium boutique experience is backed by consistent, high-fidelity data, managing both the "Artisanal Archive" and "User Order Logs."
 
 ## 🚀 Service Specifications
 - **Service Name**: `glacier-catalog-service`
 - **Internal Port**: `3002`
-- **Database**: MySQL 8.0 (Relational Inventory & Orders)
+- **Database**: MySQL 8.0 (Relational Inventory & Persistent Order Ledger)
 - **Asset Strategy**: High-resolution photorealistic visuals served via verified Unsplash CDN.
-
-## 🖼️ Image Sourcing
-To guarantee a "Ready-to-Serve" experience in the developer sandbox, the Catalog Service manages a collection of high-definition Unsplash URLs. 
-- **Reliability**: No local broken paths. 
-- **Consistency**: All clients see identical, high-quality artisanal scoops.
-- **Migration**: The service includes an auto-healing script that replaces any relative `/assets/` paths with CDN links upon database initialization.
 
 ## 📡 API Contract (Gateway Proxied)
 
@@ -21,15 +16,12 @@ To guarantee a "Ready-to-Serve" experience in the developer sandbox, the Catalog
 - **Endpoint**: `GET /product/list`
 - **Response**: Array of `Product` objects including names, artisanal descriptions, and premium CDN `imageUrl` strings.
 
-### 2. Order Management
-- **Endpoint**: `POST /order/create`: Records a new transaction.
-- **Endpoint**: `POST /order/my-orders`: Retrieves history for a specific authenticated `userId`.
+### 2. Order Management (Ledger)
+- **Endpoint**: `POST /order/create`: Records a new synthesis transaction.
+- **Endpoint**: `POST /order/my-orders`: **[CRITICAL]** Retrieves the complete history for a specific authenticated `userId`. Used by the frontend to populate the "Order Logs" section in the Profile View.
 
-## 🔄 Interaction Diagram
-```text
-[ Catalog Service ]
-       |
-       |--> Queries MySQL (Inventory Table)
-       |--> Validates Image URLs
-       |--> Returns Optimized JSON to Gateway
-```
+## 🔄 Sensory Loop Interaction
+1. **AI Consultation**: User receives recommendation via Gemini Live/Text.
+2. **Synthesis**: User adds to bag and checkouts.
+3. **Ledger Update**: Catalog Service persists the order in MySQL.
+4. **UI Synchronization**: Frontend calls `/my-orders` to refresh the Profile view immediately after checkout or upon login.

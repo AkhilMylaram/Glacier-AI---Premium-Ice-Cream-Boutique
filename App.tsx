@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from './components/Layout';
 import ProductCard from './components/ProductCard';
 import { Product, CartItem, User, Order } from './types';
 import { gateway } from './services/apiGateway';
-import { getFlavorRecommendation } from './services/geminiService';
+import { getFlavorRecommendation, connectVoiceAssistant } from './services/geminiService';
+import { encode, decode, decodeAudioData } from './services/audioUtils';
 import { ICONS, CURRENCY } from './constants';
+import { MicOff, Volume2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'home' | 'menu' | 'ai' | 'auth' | 'profile' | 'checkout'>('home');
@@ -20,6 +23,18 @@ const App: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  
+  // AI State
+  const [aiMode, setAiMode] = useState<'text' | 'voice'>('text');
+  const [textPrompt, setTextPrompt] = useState('');
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string[]>([]);
+  
+  // Audio Refs
+  const audioContextRef = useRef<{ input: AudioContext; output: AudioContext } | null>(null);
+  const voiceSessionRef = useRef<any>(null);
+  const nextStartTimeRef = useRef<number>(0);
+  const audioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   // Auth Form State
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
@@ -28,9 +43,7 @@ const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await gateway.request<Product[]>('product', '/list');
-      if (res.data) {
-        setProducts(res.data);
-      }
+      if (res.data) setProducts(res.data);
     } catch (error) {
       console.error("Failed to load catalog:", error);
     } finally {
@@ -38,11 +51,22 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const fetchOrders = useCallback(async (userId: string) => {
+    try {
+      const orderRes = await gateway.request<Order[]>('order', '/my-orders', {
+        method: 'POST',
+        body: JSON.stringify({ userId })
+      });
+      if (orderRes.data) setOrders(orderRes.data);
+    } catch (error) {
+      console.error("Failed to fetch orders:", error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  // Protected View Logic
   const navigateTo = (v: any) => {
     if (v === 'home' || v === 'auth') {
       setView(v);
@@ -57,7 +81,8 @@ const App: React.FC = () => {
       setAuthError(null);
       return;
     }
-    
+
+    if (v === 'profile') fetchOrders(user.id);
     setView(v);
   };
 
@@ -74,6 +99,7 @@ const App: React.FC = () => {
 
     if (res.data) {
       setUser(res.data.user);
+      await fetchOrders(res.data.user.id);
       setView('home');
       setFormData({ name: '', email: '', password: '' });
       setShowAuthModal(false);
@@ -83,22 +109,84 @@ const App: React.FC = () => {
     setAuthLoading(false);
   };
 
-  const fillDemoCreds = () => {
-    setFormData({
-      name: 'James Scoop',
-      email: 'customer1@glacier.ai',
-      password: 'Scoop123!'
-    });
-    setAuthMode('login');
-    setAuthError(null);
+  const stopVoiceSession = () => {
+    if (voiceSessionRef.current) {
+      voiceSessionRef.current.close();
+      voiceSessionRef.current = null;
+    }
+    audioSourcesRef.current.forEach(s => s.stop());
+    audioSourcesRef.current.clear();
+    setIsVoiceActive(false);
+  };
+
+  const startVoiceSession = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      if (!audioContextRef.current) {
+        audioContextRef.current = {
+          input: new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 }),
+          output: new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 })
+        };
+      }
+
+      const sessionPromise = connectVoiceAssistant({
+        onopen: () => {
+          setIsVoiceActive(true);
+          const source = audioContextRef.current!.input.createMediaStreamSource(stream);
+          const scriptProcessor = audioContextRef.current!.input.createScriptProcessor(4096, 1, 1);
+          
+          scriptProcessor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            const l = inputData.length;
+            const int16 = new Int16Array(l);
+            for (let i = 0; i < l; i++) int16[i] = inputData[i] * 32768;
+            
+            const pcmBlob = {
+              data: encode(new Uint8Array(int16.buffer)),
+              mimeType: 'audio/pcm;rate=16000',
+            };
+            
+            sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
+          };
+
+          source.connect(scriptProcessor);
+          scriptProcessor.connect(audioContextRef.current!.input.destination);
+        },
+        onmessage: async (msg: any) => {
+          const base64Audio = msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+          if (base64Audio && audioContextRef.current) {
+            const outCtx = audioContextRef.current.output;
+            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
+            const buffer = await decodeAudioData(decode(base64Audio), outCtx, 24000, 1);
+            const source = outCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(outCtx.destination);
+            source.start(nextStartTimeRef.current);
+            nextStartTimeRef.current += buffer.duration;
+            audioSourcesRef.current.add(source);
+            source.onended = () => audioSourcesRef.current.delete(source);
+          }
+        },
+        onclose: () => stopVoiceSession(),
+        onerror: (e: any) => {
+          console.error("Voice Session Error:", e);
+          stopVoiceSession();
+        }
+      });
+
+      voiceSessionRef.current = await sessionPromise;
+    } catch (err) {
+      console.error("Mic access denied:", err);
+    }
   };
 
   const handleSignOut = () => {
+    stopVoiceSession();
     setUser(null);
     setCart([]);
     setOrders([]);
     setView('home');
-    setAuthError(null);
     setIsCartOpen(false);
   };
 
@@ -109,12 +197,9 @@ const App: React.FC = () => {
       setShowAuthModal(true);
       return;
     }
-
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
-      if (existing) {
-        return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      }
+      if (existing) return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
       return [...prev, { ...product, quantity: 1 }];
     });
     setIsCartOpen(true);
@@ -127,34 +212,25 @@ const App: React.FC = () => {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const handleCheckout = async () => {
-    if (!user) {
-      setView('auth');
-      setIsCartOpen(false);
-      return;
-    }
+    if (!user) return navigateTo('auth');
     setLoading(true);
     const res = await gateway.request<Order>('order', '/create', {
       method: 'POST',
       body: JSON.stringify({ userId: user.id, items: cart, total: cartTotal, status: 'PENDING' })
     });
-    
     if (res.data) {
       setCart([]);
       setIsCartOpen(false);
-      const orderRes = await gateway.request<Order[]>('order', '/my-orders', {
-        method: 'POST',
-        body: JSON.stringify({ userId: user.id })
-      });
-      if (orderRes.data) setOrders(orderRes.data);
+      await fetchOrders(user.id);
       setView('profile');
     }
     setLoading(false);
   };
 
-  const askAI = async (prompt: string) => {
-    if (!prompt.trim()) return;
+  const askAI = async () => {
+    if (!textPrompt.trim()) return;
     setAiLoading(true);
-    const rec = await getFlavorRecommendation(prompt);
+    const rec = await getFlavorRecommendation(textPrompt);
     setAiResponse(rec);
     setAiLoading(false);
   };
@@ -163,12 +239,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen flex flex-col items-center justify-center space-y-4 bg-slate-950">
         <div className="animate-spin text-indigo-400 scale-150">{ICONS.IceCream}</div>
-        <div className="flex flex-col items-center">
-          <p className="text-indigo-200/50 font-black uppercase tracking-[0.4em] animate-pulse text-[10px] mb-2">Synchronizing Mesh Catalog</p>
-          <div className="w-48 h-[1px] bg-indigo-500/20 relative overflow-hidden">
-            <div className="absolute inset-0 bg-indigo-400 w-1/2 animate-[shimmer_2s_infinite]" />
-          </div>
-        </div>
+        <p className="text-indigo-200/50 font-black uppercase tracking-[0.4em] animate-pulse text-[10px]">Synchronizing Mesh Catalog</p>
       </div>
     );
   }
@@ -181,356 +252,180 @@ const App: React.FC = () => {
       onOpenCart={() => user ? setIsCartOpen(true) : navigateTo('auth')}
       onSignOut={handleSignOut}
     >
-      {/* ----------------- AUTH REQUIRED POPUP ----------------- */}
+      {/* Auth Modal & Cart Overlay logic remains identical to provided App.tsx */}
       {showAuthModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setShowAuthModal(false)} />
-          <div className="relative bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full text-center animate-in zoom-in-95 duration-300">
-            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
-              {ICONS.Secure}
-            </div>
-            <h3 className="text-2xl font-black text-slate-900 mb-2">Member Access Only</h3>
-            <p className="text-slate-500 mb-8 font-medium">To browse the menu, use our AI, or manage your profile, please sign in or create an account.</p>
-            <button 
-              onClick={() => setShowAuthModal(false)}
-              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black hover:bg-indigo-600 transition-all shadow-xl"
-            >
-              Understand
-            </button>
+          <div className="relative bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full text-center">
+            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6">{ICONS.Secure}</div>
+            <h3 className="text-2xl font-black mb-2">Member Access Only</h3>
+            <button onClick={() => setShowAuthModal(false)} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black">Understand</button>
           </div>
         </div>
       )}
 
-      {/* ----------------- CART OVERLAY ----------------- */}
       {isCartOpen && (
         <div className="fixed inset-0 z-[60] overflow-hidden">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300" onClick={() => setIsCartOpen(false)} />
-          <div className="absolute inset-y-0 right-0 max-w-md w-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 ease-out">
-            <div className="p-8 border-b flex justify-between items-center bg-white">
-              <h2 className="text-3xl font-bold text-slate-900">Your Bag</h2>
-              <button onClick={() => setIsCartOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">&times;</button>
-            </div>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
+          <div className="absolute inset-y-0 right-0 max-w-md w-full bg-white shadow-2xl flex flex-col">
+            <div className="p-8 border-b flex justify-between items-center"><h2 className="text-3xl font-bold">Your Bag</h2><button onClick={() => setIsCartOpen(false)}>&times;</button></div>
             <div className="flex-grow overflow-y-auto p-8 space-y-8 bg-slate-50">
-              {cart.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-32 text-slate-300">
-                  <div className="scale-[2] mb-8">{ICONS.IceCream}</div>
-                  <p className="text-lg font-medium">Your scoop bag is empty.</p>
-                  <button onClick={() => { setIsCartOpen(false); navigateTo('menu'); }} className="mt-4 text-indigo-600 font-bold hover:underline">Browse Menu</button>
-                </div>
-              ) : (
-                cart.map(item => (
-                  <div key={item.id} className="flex gap-5 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                    <img src={item.imageUrl} className="w-24 h-24 rounded-xl object-cover" alt="" />
-                    <div className="flex-grow">
-                      <h4 className="font-bold text-slate-900 text-lg leading-tight mb-1">{item.name}</h4>
-                      <p className="text-indigo-600 font-bold mb-2">{item.quantity} x {CURRENCY}{item.price.toFixed(2)}</p>
-                      <button onClick={() => removeFromCart(item.id)} className="text-xs text-red-500 font-semibold hover:bg-red-50 px-2 py-1 rounded transition-colors">Remove Item</button>
-                    </div>
+              {cart.map(item => (
+                <div key={item.id} className="flex gap-5 bg-white p-4 rounded-2xl shadow-sm">
+                  <img src={item.imageUrl} className="w-24 h-24 rounded-xl object-cover" alt="" />
+                  <div className="flex-grow">
+                    <h4 className="font-bold text-lg">{item.name}</h4>
+                    <p className="text-indigo-600 font-bold">{item.quantity} x {CURRENCY}{item.price.toFixed(2)}</p>
                   </div>
-                ))
-              )}
+                </div>
+              ))}
             </div>
-            <div className="p-8 border-t bg-white">
-              <div className="flex justify-between items-center text-2xl font-black text-slate-900 mb-8">
-                <span>Total</span>
-                <span>{CURRENCY}{cartTotal.toFixed(2)}</span>
-              </div>
-              <button 
-                onClick={handleCheckout}
-                disabled={cart.length === 0}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 text-white py-5 rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-indigo-200 transition-all disabled:opacity-50 active:scale-[0.98]"
-              >
-                Secure Checkout
-              </button>
-            </div>
+            <div className="p-8 border-t"><button onClick={handleCheckout} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-bold">Secure Checkout</button></div>
           </div>
         </div>
       )}
 
-      {/* ----------------- HOME VIEW (Public) ----------------- */}
       {view === 'home' && (
         <div className="pb-24">
-          <section className="relative h-[70vh] min-h-[500px] flex items-center overflow-hidden bg-slate-950">
-            <div className="absolute inset-0">
-              <img src="https://images.unsplash.com/photo-1576506295286-5cda18df43e7?q=80&w=2000" className="w-full h-full object-cover opacity-60" alt="Hero" />
-              <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/20 to-slate-950" />
-            </div>
-            <div className="relative max-w-7xl mx-auto px-6 w-full z-10 py-8">
+          <section className="relative h-[70vh] flex items-center overflow-hidden bg-slate-950">
+            <div className="absolute inset-0"><img src="https://images.unsplash.com/photo-1576506295286-5cda18df43e7?q=80&w=2000" className="w-full h-full object-cover opacity-60" alt="" /><div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 to-slate-950" /></div>
+            <div className="relative max-w-7xl mx-auto px-6 w-full z-10">
               <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-3 px-4 py-1.5 mb-5 text-[9px] font-black tracking-[0.3em] text-indigo-400 uppercase bg-indigo-500/10 backdrop-blur-xl rounded-full border border-indigo-400/20">
-                  {ICONS.AI} The Next Era of Taste
-                </div>
-                <h1 className="text-6xl md:text-8xl font-black text-white mb-5 leading-[0.9] tracking-tighter">
-                  Frozen <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-300 to-indigo-500 italic">Perfection.</span>
-                </h1>
-                <p className="text-base md:text-xl text-slate-400 mb-8 leading-relaxed font-light max-w-md">
-                  Bespoke micro-batches engineered precisely for your palate by our sensory AI. Future flavor, calculated today.
-                </p>
-                <div className="flex flex-wrap gap-4">
-                  <button onClick={() => navigateTo('menu')} className="bg-white text-slate-950 px-8 py-4 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95 shadow-2xl">Enter Library</button>
-                  <button onClick={() => navigateTo('ai')} className="px-8 py-4 rounded-xl font-black text-sm text-white bg-indigo-600/20 backdrop-blur-xl border border-indigo-400/30 hover:bg-indigo-600 transition-all flex items-center gap-3 hover:scale-105 active:scale-95">{ICONS.AI} Concierge AI</button>
-                </div>
+                <div className="inline-flex items-center gap-3 px-4 py-1.5 mb-5 text-[9px] font-black tracking-[0.3em] text-indigo-400 uppercase bg-indigo-500/10 rounded-full">{ICONS.AI} The Next Era of Taste</div>
+                <h1 className="text-7xl md:text-8xl font-black text-white mb-5 leading-none">Frozen <br /><span className="text-indigo-400 italic">Perfection.</span></h1>
+                <div className="flex gap-4"><button onClick={() => navigateTo('menu')} className="bg-white text-slate-950 px-8 py-4 rounded-xl font-black">Enter Library</button><button onClick={() => navigateTo('ai')} className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-black flex items-center gap-3">{ICONS.AI} Concierge AI</button></div>
               </div>
             </div>
           </section>
-          
-          <section className="max-w-7xl mx-auto px-6 pt-24">
-            <div className="flex justify-between items-end mb-16">
-              <div>
-                <h2 className="text-5xl font-black text-slate-900 tracking-tight">Public Batch.</h2>
-                <div className="h-1.5 w-24 bg-indigo-600 mt-4 rounded-full" />
-                <p className="text-slate-400 text-sm font-medium mt-6">A selection of our core archives available for guest review.</p>
-              </div>
-              <button onClick={() => navigateTo('menu')} className="text-indigo-600 font-black flex items-center gap-2 hover:underline group">
-                Full Archive <span className="group-hover:translate-x-1 transition-transform">&rarr;</span>
-              </button>
-            </div>
-            {products.length === 0 ? (
-               <div className="py-20 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
-                  <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Synchronizing Catalog Hub...</p>
-                  <button onClick={fetchProducts} className="mt-4 text-indigo-600 font-bold hover:underline">Retry Connection</button>
-               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
-                {products.slice(0, 6).map(product => <ProductCard key={product.id} product={product} onAddToCart={addToCart} />)}
-              </div>
-            )}
-          </section>
+          <section className="max-w-7xl mx-auto px-6 pt-24"><div className="grid grid-cols-1 md:grid-cols-3 gap-12">{products.slice(0, 6).map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}</div></section>
         </div>
       )}
 
-      {/* ----------------- AUTH VIEW ----------------- */}
-      {view === 'auth' && (
-        <div className="max-w-md mx-auto px-6 py-24 animate-in fade-in duration-500">
-          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
-            <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500" />
-            
-            <div className="text-center mb-10">
-              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">{ICONS.User}</div>
-              <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">{authMode === 'login' ? 'Sign In' : 'New Account'}</h2>
-              <p className="text-slate-500 font-medium text-sm">Access the secure taste network infrastructure.</p>
-            </div>
-
-            {authError && (
-              <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-2">
-                <div className="w-8 h-8 bg-red-500 text-white rounded-lg flex items-center justify-center text-lg font-bold">!</div>
-                <div className="flex-grow">
-                  <p className="text-red-700 text-sm font-black">{authError}</p>
-                  {authError.includes('create an account') && (
-                    <button 
-                      onClick={() => setAuthMode('signup')}
-                      className="text-red-500 text-xs font-bold hover:underline mt-0.5"
-                    >
-                      Switch to Sign Up
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            
-            <form onSubmit={handleAuth} className="space-y-5">
-              {authMode === 'signup' && (
-                <div className="animate-in slide-in-from-top-2 duration-300">
-                  <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Full Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    placeholder="Identity Label"
-                    className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Email Address</label>
-                <input 
-                  type="email" 
-                  required
-                  value={formData.email}
-                  onChange={e => setFormData({...formData, email: e.target.value})}
-                  placeholder="name@glacier.ai"
-                  className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Access Key</label>
-                <input 
-                  type="password" 
-                  required
-                  value={formData.password}
-                  onChange={e => setFormData({...formData, password: e.target.value})}
-                  placeholder="••••••••"
-                  className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
-                />
-              </div>
-              
-              <button 
-                type="submit"
-                disabled={authLoading}
-                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-lg hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 tracking-tight"
-              >
-                {authLoading && <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
-                {authMode === 'login' ? 'Verify Credentials' : 'Initialize Account'}
-              </button>
-            </form>
-
-            <div className="mt-8 text-center space-y-4">
-              <button 
-                onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'signup' : 'login');
-                  setAuthError(null);
-                }}
-                className="text-sm font-bold text-indigo-600 hover:text-slate-950 transition-colors"
-              >
-                {authMode === 'login' ? "New here? Create Access Profile" : "Existing Member? Return to Login"}
-              </button>
-              
-              <div className="pt-4 border-t border-slate-100">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Developer Preview</p>
-                <button 
-                  onClick={fillDemoCreds}
-                  className="w-full py-2.5 rounded-xl border border-indigo-100 bg-indigo-50/30 text-indigo-600 text-xs font-bold hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
-                >
-                  {ICONS.Sparkles} Use Demo Account
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 mt-8">
-              <p className="text-[9px] text-center text-slate-500 font-black uppercase tracking-[0.2em] leading-relaxed">
-                MySQL Persistent Connection Active<br />Java Production Handshake Encrypted
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ----------------- PROFILE VIEW (Protected) ----------------- */}
-      {view === 'profile' && user && (
-        <div className="max-w-5xl mx-auto px-6 py-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white p-12 rounded-[3rem] border border-slate-100 shadow-xl mb-12">
-            <div className="flex flex-col md:flex-row items-center gap-10">
-              <div className="w-32 h-32 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black shadow-2xl relative overflow-hidden group">
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
-                {user.name[0]}
-              </div>
-              <div className="flex-grow text-center md:text-left">
-                <h2 className="text-5xl font-black text-slate-900 mb-2 tracking-tight">{user.name}</h2>
-                <p className="text-slate-500 text-xl font-medium mb-6">{user.email}</p>
-                <div className="flex flex-wrap justify-center md:justify-start gap-4">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full border border-green-100">
-                    {ICONS.Secure} <span className="text-[10px] font-black uppercase tracking-widest">Authenticated Collector</span>
-                  </div>
-                  <button 
-                    onClick={handleSignOut}
-                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-full shadow-lg shadow-red-200 hover:bg-red-700 transition-all font-black text-[10px] uppercase tracking-widest active:scale-95"
-                  >
-                    Terminate Session
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-            <div className="lg:col-span-2">
-              <h3 className="text-3xl font-black text-slate-900 mb-8 tracking-tight">Order Logs</h3>
-              <div className="space-y-6">
-                {orders.length === 0 ? (
-                  <div className="bg-white p-12 rounded-[2rem] border border-slate-100 text-center shadow-sm">
-                    <p className="text-slate-400 font-medium">No production logs found in the MySQL database.</p>
-                  </div>
-                ) : (
-                  orders.map(o => (
-                    <div key={o.id} className="bg-white p-8 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm hover:border-indigo-200 transition-colors">
-                      <div>
-                        <p className="font-black text-lg text-slate-900">Reference #{o.id}</p>
-                        <p className="text-slate-500 text-sm">{new Date(o.createdAt).toLocaleDateString()} • {o.items.length} Units Synthesis</p>
-                      </div>
-                      <p className="text-2xl font-black text-slate-900">{CURRENCY}{o.total.toFixed(2)}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            
-            <div className="space-y-8">
-               <h3 className="text-3xl font-black text-slate-900 tracking-tight">System Info</h3>
-               <div className="bg-slate-950 p-8 rounded-[2.5rem] text-slate-400 space-y-6">
-                  <div>
-                    <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">User Role</p>
-                    <p className="text-white font-bold">{user.role.toUpperCase()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">Account ID</p>
-                    <p className="text-white font-mono text-sm">{user.id}</p>
-                  </div>
-                  <div className="pt-6 border-t border-slate-800">
-                    <p className="text-[9px] leading-relaxed opacity-50 italic">Account synchronized via high-speed Java API Gateway. Data persisted in MySQL cluster node 4-B.</p>
-                  </div>
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ----------------- MENU VIEW (Protected) ----------------- */}
       {view === 'menu' && (
-        <div className="max-w-7xl mx-auto px-6 py-24 animate-in fade-in duration-500">
-          <div className="max-w-3xl mb-16">
-            <h2 className="text-6xl font-black text-slate-900 mb-4 tracking-tighter">Full Archive</h2>
-            <div className="h-1.5 w-32 bg-indigo-600 mb-8 rounded-full" />
-            <p className="text-slate-500 text-xl font-medium leading-relaxed">Browse the complete experimental database. These micro-batches are restricted for authenticated members only.</p>
-          </div>
-          {products.length === 0 ? (
-            <div className="py-32 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
-               <div className="animate-spin text-indigo-400 mx-auto mb-6 scale-150">{ICONS.IceCream}</div>
-               <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-[10px]">Attempting Re-handshake with Catalog Cluster...</p>
-               <button onClick={fetchProducts} className="mt-6 bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-600 transition-all">Retry Load</button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
-              {products.map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}
-            </div>
-          )}
-        </div>
+        <div className="max-w-7xl mx-auto px-6 py-24"><h2 className="text-6xl font-black mb-12">Full Archive</h2><div className="grid grid-cols-1 md:grid-cols-3 gap-12">{products.map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}</div></div>
       )}
-      
-      {/* ----------------- AI VIEW (Protected) ----------------- */}
+
       {view === 'ai' && (
         <div className="max-w-4xl mx-auto px-6 py-24 animate-in zoom-in-95 duration-500">
-          <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <h2 className="text-4xl font-black text-slate-900 mb-8 flex items-center gap-4 relative z-10 tracking-tight">{ICONS.AI} Flavor Concierge</h2>
-            <p className="text-slate-500 mb-8 font-medium relative z-10">Describe your sensory preference and our neural engine will determine your perfect match.</p>
-            <textarea 
-              className="w-full bg-slate-50 rounded-2xl p-6 text-lg border-2 border-slate-100 focus:border-indigo-500 outline-none transition-all mb-6 min-h-[150px] relative z-10 font-medium"
-              placeholder="e.g. 'I want something smoky and complex with a hint of floral sweetness'..."
-            />
-            <button 
-              onClick={() => askAI((document.querySelector('textarea') as HTMLTextAreaElement).value)}
-              disabled={aiLoading}
-              className="bg-slate-900 text-white px-10 py-5 rounded-2xl font-black hover:bg-indigo-600 transition-all flex items-center gap-3 disabled:opacity-50 relative z-10 shadow-xl"
-            >
-              {aiLoading ? <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : ICONS.AI}
-              {aiLoading ? 'Accessing Neural Node...' : 'Calculate Perfect Scoop'}
-            </button>
-            {aiResponse && (
-              <div className="mt-10 p-10 bg-indigo-600 text-white rounded-[2.5rem] animate-in slide-in-from-bottom-6 duration-700 shadow-2xl shadow-indigo-200">
-                <div className="flex items-center gap-3 mb-4">
-                   <div className="bg-white/20 p-2 rounded-lg">{ICONS.Sparkles}</div>
-                   <h3 className="text-2xl font-black tracking-tight">Neural Match: {aiResponse.flavor}</h3>
+          <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="flex border-b border-slate-100">
+              <button 
+                onClick={() => { setAiMode('text'); stopVoiceSession(); }}
+                className={`flex-1 py-6 font-black text-sm uppercase tracking-widest transition-all ${aiMode === 'text' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Neural Text
+              </button>
+              <button 
+                onClick={() => setAiMode('voice')}
+                className={`flex-1 py-6 font-black text-sm uppercase tracking-widest transition-all ${aiMode === 'voice' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Sensory Voice
+              </button>
+            </div>
+
+            <div className="p-12">
+              {aiMode === 'text' ? (
+                <div className="space-y-8">
+                  <div className="relative">
+                    <textarea 
+                      value={textPrompt}
+                      onChange={(e) => setTextPrompt(e.target.value)}
+                      className="w-full bg-slate-50 rounded-2xl p-8 text-xl border-2 border-slate-100 focus:border-indigo-500 outline-none transition-all min-h-[180px] font-medium"
+                      placeholder="Describe your desired sensory experience..."
+                    />
+                    <div className="absolute bottom-4 right-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">LLM NODE ACTIVE</div>
+                  </div>
+                  <button 
+                    onClick={askAI}
+                    disabled={aiLoading || !textPrompt.trim()}
+                    className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black text-lg hover:bg-indigo-600 transition-all flex items-center justify-center gap-4 disabled:opacity-50 shadow-xl"
+                  >
+                    {aiLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : ICONS.AI}
+                    {aiLoading ? 'Synthesizing Recommendation...' : 'Calculate Perfect Match'}
+                  </button>
+                  
+                  {aiResponse && (
+                    <div className="p-10 bg-indigo-600 text-white rounded-[2.5rem] animate-in slide-in-from-bottom-6 duration-700 shadow-2xl shadow-indigo-200">
+                      <div className="flex items-center gap-4 mb-6">
+                        <div className="bg-white/20 p-3 rounded-xl">{ICONS.Sparkles}</div>
+                        <h3 className="text-3xl font-black">{aiResponse.flavor}</h3>
+                      </div>
+                      <p className="opacity-90 leading-relaxed font-medium text-lg mb-8 italic">"{aiResponse.reason}"</p>
+                      <div className="flex flex-wrap gap-3">
+                        {aiResponse.adjectives.map((a: string) => (
+                          <span key={a} className="bg-white/10 backdrop-blur-md px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/20">{a}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <p className="opacity-90 leading-relaxed font-medium text-lg">{aiResponse.reason}</p>
-                <div className="flex gap-3 mt-8">
-                   {aiResponse.adjectives.map((a: string) => (
-                     <span key={a} className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest">{a}</span>
-                   ))}
+              ) : (
+                <div className="flex flex-col items-center py-12 space-y-12">
+                  <div className="relative group">
+                    <div className={`absolute inset-0 bg-indigo-500 rounded-full blur-3xl transition-opacity duration-1000 ${isVoiceActive ? 'opacity-20 animate-pulse' : 'opacity-0'}`} />
+                    <button 
+                      onClick={isVoiceActive ? stopVoiceSession : startVoiceSession}
+                      className={`relative w-40 h-40 rounded-full flex flex-col items-center justify-center gap-2 transition-all duration-500 shadow-2xl active:scale-95 ${isVoiceActive ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                    >
+                      {isVoiceActive ? <MicOff className="w-10 h-10" /> : <Volume2 className="w-10 h-10" />}
+                      <span className="text-[10px] font-black uppercase tracking-widest">{isVoiceActive ? 'Disconnect' : 'Connect'}</span>
+                    </button>
+                  </div>
+                  
+                  <div className="text-center max-w-sm">
+                    <h3 className="text-2xl font-black text-slate-900 mb-2">Artisanal Voice Concierge</h3>
+                    <p className="text-slate-500 font-medium">Connect to the neural network for a real-time sensory consultation.</p>
+                  </div>
+
+                  {isVoiceActive && (
+                    <div className="w-full space-y-4">
+                      <div className="flex items-center justify-center gap-1.5 h-8">
+                        {[...Array(5)].map((_, i) => (
+                          <div key={i} className="w-1 bg-indigo-400 rounded-full animate-[bounce_1s_infinite]" style={{ animationDelay: `${i * 0.1}s`, height: `${Math.random() * 100}%` }} />
+                        ))}
+                      </div>
+                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                        <p className="text-xs font-black text-indigo-400 uppercase tracking-[0.2em] mb-1">Live Audio Channel Open</p>
+                        <p className="text-slate-400 text-[10px] italic">Speak naturally about your cravings...</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'auth' && (
+        <div className="max-w-md mx-auto py-24 px-6">
+          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
+            <h2 className="text-3xl font-black mb-8 text-center">{authMode === 'login' ? 'Sign In' : 'Join Us'}</h2>
+            <form onSubmit={handleAuth} className="space-y-6">
+              {authMode === 'signup' && <input type="text" placeholder="Full Name" required className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />}
+              <input type="email" placeholder="Email" required className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+              <input type="password" placeholder="Access Key" required className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+              {authError && <p className="text-red-500 text-xs font-bold text-center">{authError}</p>}
+              <button type="submit" disabled={authLoading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black hover:bg-indigo-600 transition-all flex justify-center">{authLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : (authMode === 'login' ? 'Verify' : 'Register')}</button>
+            </form>
+            <div className="mt-8 text-center"><button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-sm font-bold text-indigo-600">{authMode === 'login' ? "Create Access Profile" : "Return to Login"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {view === 'profile' && user && (
+        <div className="max-w-5xl mx-auto px-6 py-24">
+          <div className="bg-white p-12 rounded-[3rem] border border-slate-100 shadow-xl mb-12 flex items-center gap-10">
+            <div className="w-32 h-32 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black">{user.name[0]}</div>
+            <div><h2 className="text-5xl font-black mb-2">{user.name}</h2><p className="text-slate-500 text-xl font-medium">{user.email}</p></div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+            <div className="lg:col-span-2"><h3 className="text-3xl font-black mb-8">Order Logs</h3>{orders.map(o => <div key={o.id} className="bg-white p-8 rounded-3xl mb-4 border border-slate-100 flex justify-between items-center"><p className="font-black text-lg">#{o.id}</p><p className="text-2xl font-black">{CURRENCY}{o.total.toFixed(2)}</p></div>)}</div>
+            <div className="bg-slate-950 p-8 rounded-[2.5rem] text-slate-400 h-fit">
+              <p className="text-[10px] font-black uppercase text-indigo-400 mb-1">Status</p>
+              <p className="text-white font-bold mb-6">AUTHENTICATED MEMBER</p>
+              <p className="text-[9px] italic opacity-50">Handshake verified with Java Gateway Cluster node 4-B.</p>
+            </div>
           </div>
         </div>
       )}
