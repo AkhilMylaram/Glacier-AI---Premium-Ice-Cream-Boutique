@@ -1,27 +1,78 @@
-# Authentication Microservice (Glacier AI)
+# 🔐 Authentication Microservice (Identity & Access)
 
-## Overview
-This service handles all identity and access management for the Glacier AI platform. It is designed as an independent microservice that communicates with the API Gateway.
+## 📖 Overview
+The **Authentication Service** is the source of truth for user identities within the Glacier AI ecosystem. It manages user registration, credential verification, and session token generation. It operates as an isolated node that only interacts with the **API Gateway**.
 
-## Tech Stack
-- **Runtime**: Node.js v20+
-- **Framework**: Express.js
-- **Database**: MySQL 8.0 (Relational Storage)
-- **Auth Strategy**: JWT (JSON Web Tokens) with RS256 signing
-- **Encryption**: Argon2id for password hashing
+## 🚀 Service Specifications
+- **Service Name**: `glacier-auth-service`
+- **Internal Port**: `3001`
+- **External Exposure**: None (Accessed via Gateway at `8080`)
+- **Tech Stack**:
+  - **Runtime**: Node.js (v20+)
+  - **Framework**: Simulated Express.js / TypeScript
+  - **Database**: MySQL 8.0 (Persistent via Identity Mesh)
+  - **Auth Protocol**: JWT (JSON Web Tokens) with RS256 signing
+  - **Security**: Argon2id password hashing (simulated)
 
-## Database Connection
-The service connects to a MySQL cluster via a persistent connection pool. 
-Configuration is handled via environment variables:
-- `DB_HOST`: mysql-auth-cluster.internal
-- `DB_USER`: glacier_auth_svc
-- `DB_NAME`: identity_db
+## 🔄 User Flow
+1. **Request Ingress**: Receives a proxied request from the **API Gateway**.
+2. **Context Validation**: Checks if the user exists in the MySQL `users` table.
+3. **Logic Execution**: Performs credential matching or record insertion.
+4. **Token Generation**: Signs a session JWT for the client.
+5. **Response Egress**: Returns the token and safe user profile to the Gateway.
 
-## API Endpoints (via Gateway)
-- `POST /v1/auth/login`: Verifies credentials and issues JWT.
-- `POST /v1/auth/register`: Creates a new user entry in MySQL and initializes profile.
+## 📡 API Contract (Proxied via Gateway)
 
-## Security Features
-- Rate limiting on login attempts.
-- SQL Injection protection via prepared statements.
-- XSS protection via secure cookie headers.
+### 1. Login Authentication
+- **Endpoint**: `POST /auth/login`
+- **Wait For (Request)**:
+  ```json
+  { "email": "user@example.com", "password": "securepassword" }
+  ```
+- **Sends (Response)**:
+  ```json
+  { 
+    "token": "jwt_token_string", 
+    "user": { "id": "u1", "name": "...", "email": "...", "role": "..." } 
+  }
+  ```
+
+### 2. User Registration
+- **Endpoint**: `POST /auth/register`
+- **Wait For (Request)**:
+  ```json
+  { "name": "New User", "email": "new@example.com", "password": "securepassword" }
+  ```
+- **Sends (Response)**:
+  ```json
+  { "token": "jwt_token_string", "user": { ... } }
+  ```
+
+## 🗺️ Detailed Flow Diagram
+```text
+[ Frontend App ] (Port 3000)
+       |
+       | HTTP POST (Auth Action)
+       v
+[ API Gateway ] (Port 8080)
+       |
+       | internal:routeRequest('auth', ...)
+       v
+[ AUTH SERVICE ] (Port 3001) <--- (YOU ARE HERE)
+       |
+       | SQL: SELECT/INSERT
+       v
+[ MySQL (Identity) ] (Storage)
+       |
+       | Success/Fail
+       v
+[ AUTH SERVICE ]
+       |
+       | JSON Response
+       v
+[ API Gateway ]
+       |
+       | Unified API Response
+       v
+[ Frontend App ]
+```
