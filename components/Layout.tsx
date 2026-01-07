@@ -62,10 +62,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, cartCount, onNavigate, 
                   </button>
                   <button 
                     onClick={onSignOut}
-                    title="Sign Out"
-                    className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all active:scale-90"
+                    className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-full transition-all border border-red-100 group shadow-sm active:scale-95"
                   >
-                    <LogOut className="w-5 h-5" />
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Sign Out</span>
                   </button>
                 </div>
               ) : (
@@ -85,7 +85,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, cartCount, onNavigate, 
         {children}
       </main>
 
-      <footer className="bg-slate-950 text-slate-400 py-20 border-t border-slate-800 overflow-hidden relative">
+      <footer className="bg-slate-950 text-slate-400 py-16 border-t border-slate-800 overflow-hidden relative">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -99,7 +99,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, cartCount, onNavigate, 
                 <span className="text-xl font-bold text-white tracking-tight">{APP_NAME}</span>
               </div>
               <p className="text-[10px] text-slate-500 max-w-[180px] text-center md:text-left leading-relaxed font-medium">
-                Pioneering artisanal flavors through neural engineering.
+                Pioneering artisanal flavors through neural engineering and agentic workflows.
               </p>
             </div>
 
@@ -113,7 +113,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, cartCount, onNavigate, 
                   </span>
                   <div className="h-[1px] w-16 bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent mt-3" />
                   <span className="text-[9px] font-black tracking-[0.3em] text-indigo-400/60 mt-3 uppercase whitespace-nowrap">
-                    AI Agent Driven Solutions
+                    AI AGENT DRIVEN SOLUTIONS
                   </span>
                 </div>
               </div>
@@ -130,7 +130,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, cartCount, onNavigate, 
               </p>
               <div className="flex items-center space-x-2 bg-slate-900/40 px-3 py-1.5 rounded-full border border-slate-800">
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                <span className="text-[8px] text-indigo-300/70 font-black uppercase tracking-widest">Agent Link Secured</span>
+                <span className="text-[8px] text-indigo-300/70 font-black uppercase tracking-widest">Microservice Mesh Active</span>
               </div>
             </div>
 

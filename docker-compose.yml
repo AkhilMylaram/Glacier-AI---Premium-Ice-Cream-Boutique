@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # --- Frontend Application ---
+  frontend:
+    build:
+      context: .
+      dockerfile: docker-files/frontend-docker.io
+    ports:
+      - "3000:3000"
+    environment:
+      - API_KEY=${API_KEY}
+      - VITE_GATEWAY_URL=http://localhost:8080
+    depends_on:
+      - api-gateway
+    networks:
+      - glacier-network
+
+  # --- API Gateway ---
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker-files/apigateway-docker.io
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-service
+      - catalog-service
+    networks:
+      - glacier-network
+
+  # --- Authentication Service ---
+  auth-service:
+    build:
+      context: .
+      dockerfile: docker-files/authentication-docker.io
+    environment:
+      - PORT=3001
+    networks:
+      - glacier-network
+
+  # --- Catalog & Order Service ---
+  catalog-service:
+    build:
+      context: .
+      dockerfile: docker-files/catalog-docker.io
+    environment:
+      - PORT=3002
+    networks:
+      - glacier-network
+
+networks:
+  glacier-network:
+    driver: bridge

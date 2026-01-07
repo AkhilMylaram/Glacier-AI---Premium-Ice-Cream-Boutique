@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from './components/Layout';
 import ProductCard from './components/ProductCard';
 import { Product, CartItem, User, Order } from './types';
@@ -25,15 +24,23 @@ const App: React.FC = () => {
   // Auth Form State
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
 
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true);
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    try {
       const res = await gateway.request<Product[]>('product', '/list');
-      if (res.data) setProducts(res.data);
+      if (res.data) {
+        setProducts(res.data);
+      }
+    } catch (error) {
+      console.error("Failed to load catalog:", error);
+    } finally {
       setLoading(false);
-    };
-    init();
+    }
   }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   // Protected View Logic
   const navigateTo = (v: any) => {
@@ -74,6 +81,16 @@ const App: React.FC = () => {
       setAuthError(res.error || 'Authentication Failed');
     }
     setAuthLoading(false);
+  };
+
+  const fillDemoCreds = () => {
+    setFormData({
+      name: 'James Scoop',
+      email: 'customer1@glacier.ai',
+      password: 'Scoop123!'
+    });
+    setAuthMode('login');
+    setAuthError(null);
   };
 
   const handleSignOut = () => {
@@ -145,8 +162,13 @@ const App: React.FC = () => {
   if (loading && products.length === 0) {
     return (
       <div className="h-screen flex flex-col items-center justify-center space-y-4 bg-slate-950">
-        <div className="animate-spin text-indigo-400">{ICONS.IceCream}</div>
-        <p className="text-indigo-200/50 font-bold uppercase tracking-[0.3em] animate-pulse text-[10px]">Encrypting Gateway Link...</p>
+        <div className="animate-spin text-indigo-400 scale-150">{ICONS.IceCream}</div>
+        <div className="flex flex-col items-center">
+          <p className="text-indigo-200/50 font-black uppercase tracking-[0.4em] animate-pulse text-[10px] mb-2">Synchronizing Mesh Catalog</p>
+          <div className="w-48 h-[1px] bg-indigo-500/20 relative overflow-hidden">
+            <div className="absolute inset-0 bg-indigo-400 w-1/2 animate-[shimmer_2s_infinite]" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -228,42 +250,52 @@ const App: React.FC = () => {
       {/* ----------------- HOME VIEW (Public) ----------------- */}
       {view === 'home' && (
         <div className="pb-24">
-          <section className="relative h-[60vh] min-h-[450px] flex items-center overflow-hidden bg-slate-950">
+          <section className="relative h-[70vh] min-h-[500px] flex items-center overflow-hidden bg-slate-950">
             <div className="absolute inset-0">
-              <img src="https://images.unsplash.com/photo-1576506295286-5cda18df43e7?q=80&w=2000" className="w-full h-full object-cover opacity-40" alt="Hero" />
-              <div className="absolute inset-0 bg-gradient-to-b from-slate-950/90 via-slate-950/30 to-slate-950" />
+              <img src="https://images.unsplash.com/photo-1576506295286-5cda18df43e7?q=80&w=2000" className="w-full h-full object-cover opacity-60" alt="Hero" />
+              <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/20 to-slate-950" />
             </div>
             <div className="relative max-w-7xl mx-auto px-6 w-full z-10 py-8">
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-3 px-4 py-1.5 mb-5 text-[9px] font-black tracking-[0.3em] text-indigo-400 uppercase bg-indigo-500/10 backdrop-blur-xl rounded-full border border-indigo-400/20">
                   {ICONS.AI} The Next Era of Taste
                 </div>
-                <h1 className="text-5xl md:text-7xl font-black text-white mb-5 leading-[0.95] tracking-tighter">
+                <h1 className="text-6xl md:text-8xl font-black text-white mb-5 leading-[0.9] tracking-tighter">
                   Frozen <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-300 to-indigo-500 italic">Perfection.</span>
                 </h1>
-                <p className="text-base md:text-lg text-slate-400 mb-8 leading-relaxed font-light max-w-md">
+                <p className="text-base md:text-xl text-slate-400 mb-8 leading-relaxed font-light max-w-md">
                   Bespoke micro-batches engineered precisely for your palate by our sensory AI. Future flavor, calculated today.
                 </p>
                 <div className="flex flex-wrap gap-4">
-                  <button onClick={() => navigateTo('menu')} className="bg-white text-slate-950 px-7 py-3.5 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95">Enter Library</button>
-                  <button onClick={() => navigateTo('ai')} className="px-7 py-3.5 rounded-xl font-black text-sm text-white bg-indigo-600/20 backdrop-blur-xl border border-indigo-400/30 hover:bg-indigo-600 transition-all flex items-center gap-3 hover:scale-105 active:scale-95">{ICONS.AI} Concierge AI</button>
+                  <button onClick={() => navigateTo('menu')} className="bg-white text-slate-950 px-8 py-4 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95 shadow-2xl">Enter Library</button>
+                  <button onClick={() => navigateTo('ai')} className="px-8 py-4 rounded-xl font-black text-sm text-white bg-indigo-600/20 backdrop-blur-xl border border-indigo-400/30 hover:bg-indigo-600 transition-all flex items-center gap-3 hover:scale-105 active:scale-95">{ICONS.AI} Concierge AI</button>
                 </div>
               </div>
             </div>
           </section>
           
-          <section className="max-w-7xl mx-auto px-6 pt-16">
-            <div className="flex justify-between items-end mb-10">
+          <section className="max-w-7xl mx-auto px-6 pt-24">
+            <div className="flex justify-between items-end mb-16">
               <div>
-                <h2 className="text-4xl font-black text-slate-900 tracking-tight">Public Batch.</h2>
-                <p className="text-slate-400 text-sm font-medium mt-1">Samples available for guest viewing.</p>
+                <h2 className="text-5xl font-black text-slate-900 tracking-tight">Public Batch.</h2>
+                <div className="h-1.5 w-24 bg-indigo-600 mt-4 rounded-full" />
+                <p className="text-slate-400 text-sm font-medium mt-6">A selection of our core archives available for guest review.</p>
               </div>
-              <button onClick={() => navigateTo('menu')} className="text-indigo-600 font-black flex items-center hover:underline">Full Archive &rarr;</button>
+              <button onClick={() => navigateTo('menu')} className="text-indigo-600 font-black flex items-center gap-2 hover:underline group">
+                Full Archive <span className="group-hover:translate-x-1 transition-transform">&rarr;</span>
+              </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {products.slice(0, 6).map(product => <ProductCard key={product.id} product={product} onAddToCart={addToCart} />)}
-            </div>
+            {products.length === 0 ? (
+               <div className="py-20 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Synchronizing Catalog Hub...</p>
+                  <button onClick={fetchProducts} className="mt-4 text-indigo-600 font-bold hover:underline">Retry Connection</button>
+               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
+                {products.slice(0, 6).map(product => <ProductCard key={product.id} product={product} onAddToCart={addToCart} />)}
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -283,7 +315,7 @@ const App: React.FC = () => {
             {authError && (
               <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-2">
                 <div className="w-8 h-8 bg-red-500 text-white rounded-lg flex items-center justify-center text-lg font-bold">!</div>
-                <div>
+                <div className="flex-grow">
                   <p className="text-red-700 text-sm font-black">{authError}</p>
                   {authError.includes('create an account') && (
                     <button 
@@ -344,7 +376,7 @@ const App: React.FC = () => {
               </button>
             </form>
 
-            <div className="mt-8 text-center">
+            <div className="mt-8 text-center space-y-4">
               <button 
                 onClick={() => {
                   setAuthMode(authMode === 'login' ? 'signup' : 'login');
@@ -354,6 +386,16 @@ const App: React.FC = () => {
               >
                 {authMode === 'login' ? "New here? Create Access Profile" : "Existing Member? Return to Login"}
               </button>
+              
+              <div className="pt-4 border-t border-slate-100">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Developer Preview</p>
+                <button 
+                  onClick={fillDemoCreds}
+                  className="w-full py-2.5 rounded-xl border border-indigo-100 bg-indigo-50/30 text-indigo-600 text-xs font-bold hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+                >
+                  {ICONS.Sparkles} Use Demo Account
+                </button>
+              </div>
             </div>
 
             <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 mt-8">
@@ -383,7 +425,7 @@ const App: React.FC = () => {
                   </div>
                   <button 
                     onClick={handleSignOut}
-                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-50 text-red-600 rounded-full border border-red-100 hover:bg-red-600 hover:text-white transition-all font-black text-[10px] uppercase tracking-widest"
+                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-full shadow-lg shadow-red-200 hover:bg-red-700 transition-all font-black text-[10px] uppercase tracking-widest active:scale-95"
                   >
                     Terminate Session
                   </button>
@@ -439,11 +481,20 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto px-6 py-24 animate-in fade-in duration-500">
           <div className="max-w-3xl mb-16">
             <h2 className="text-6xl font-black text-slate-900 mb-4 tracking-tighter">Full Archive</h2>
-            <p className="text-slate-500 text-lg font-medium leading-relaxed">Browse the complete experimental database. These micro-batches are restricted for authenticated members only.</p>
+            <div className="h-1.5 w-32 bg-indigo-600 mb-8 rounded-full" />
+            <p className="text-slate-500 text-xl font-medium leading-relaxed">Browse the complete experimental database. These micro-batches are restricted for authenticated members only.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-            {products.map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}
-          </div>
+          {products.length === 0 ? (
+            <div className="py-32 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+               <div className="animate-spin text-indigo-400 mx-auto mb-6 scale-150">{ICONS.IceCream}</div>
+               <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-[10px]">Attempting Re-handshake with Catalog Cluster...</p>
+               <button onClick={fetchProducts} className="mt-6 bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-600 transition-all">Retry Load</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
+              {products.map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}
+            </div>
+          )}
         </div>
       )}
       
