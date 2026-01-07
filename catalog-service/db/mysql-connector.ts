@@ -2,7 +2,7 @@ import { Product } from '../../types';
 
 export class CatalogMySqlConnector {
   private static STORAGE_KEY = 'glacier_mysql_catalog_db';
-  private static DB_VERSION = 4; // Incrementing to force-refresh corrected ice cream links
+  private static DB_VERSION = 5; // Updated version to trigger fresh seed data
 
   private static SEED_DATA: Product[] = [
     { 
@@ -130,12 +130,12 @@ export class CatalogMySqlConnector {
     
     const parsed = JSON.parse(data);
     
-    // Auto-fix migration: If images are local assets OR version is outdated, refresh seed data
+    // Auto-fix migration: Force update if version is outdated or contains broken assets
     const isOutdated = parsed.version !== this.DB_VERSION;
     const hasBrokenImages = parsed.products.some((p: Product) => p.imageUrl.startsWith('/assets'));
 
     if (isOutdated || hasBrokenImages) {
-      console.log("[DB MIGRATION] Repairing broken image paths and updating to premium assets...");
+      console.log("[DB MIGRATION] Restoring premium image catalog...");
       parsed.products = this.SEED_DATA;
       parsed.version = this.DB_VERSION;
       this.saveDb(parsed);
