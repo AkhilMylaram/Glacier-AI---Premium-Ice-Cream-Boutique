@@ -5,18 +5,25 @@ import ProductCard from './components/ProductCard';
 import { Product, CartItem, User, Order } from './types';
 import { gateway } from './services/apiGateway';
 import { getFlavorRecommendation } from './services/geminiService';
-import { ICONS, APP_NAME, CURRENCY } from './constants';
+import { ICONS, CURRENCY } from './constants';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'home' | 'menu' | 'ai' | 'auth' | 'profile' | 'checkout'>('home');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Auth Form State
+  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
 
   useEffect(() => {
     const init = async () => {
@@ -28,21 +35,64 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  // Protected View Logic
+  const navigateTo = (v: any) => {
+    if (v === 'home' || v === 'auth') {
+      setView(v);
+      setAuthError(null);
+      return;
+    }
+    
+    if (!user) {
+      setAuthMode('login');
+      setView('auth');
+      setShowAuthModal(true);
+      setAuthError(null);
+      return;
+    }
+    
+    setView(v);
+  };
+
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await gateway.request<{token: string, user: User}>('auth', '/login', {
+    setAuthLoading(true);
+    setAuthError(null);
+    
+    const endpoint = authMode === 'login' ? '/login' : '/register';
+    const res = await gateway.request<{token: string, user: User}>('auth', endpoint, {
       method: 'POST',
-      body: JSON.stringify({ email: 'scoops@glacier.ai', password: 'password123' })
+      body: JSON.stringify(formData)
     });
+
     if (res.data) {
       setUser(res.data.user);
       setView('home');
+      setFormData({ name: '', email: '', password: '' });
+      setShowAuthModal(false);
     } else {
-      alert(res.error || 'Authentication Failed');
+      setAuthError(res.error || 'Authentication Failed');
     }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = () => {
+    setUser(null);
+    setCart([]);
+    setOrders([]);
+    setView('home');
+    setAuthError(null);
+    setIsCartOpen(false);
   };
 
   const addToCart = (product: Product) => {
+    if (!user) {
+      setAuthMode('signup');
+      setView('auth');
+      setShowAuthModal(true);
+      return;
+    }
+
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
@@ -66,15 +116,9 @@ const App: React.FC = () => {
       return;
     }
     setLoading(true);
-    const orderData = {
-      userId: user.id,
-      items: cart,
-      total: cartTotal,
-      status: 'PENDING'
-    };
     const res = await gateway.request<Order>('order', '/create', {
       method: 'POST',
-      body: JSON.stringify(orderData)
+      body: JSON.stringify({ userId: user.id, items: cart, total: cartTotal, status: 'PENDING' })
     });
     
     if (res.data) {
@@ -98,11 +142,11 @@ const App: React.FC = () => {
     setAiLoading(false);
   };
 
-  if (loading && view === 'home' && products.length === 0) {
+  if (loading && products.length === 0) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center space-y-4">
-        <div className="animate-spin text-indigo-600">{ICONS.IceCream}</div>
-        <p className="text-slate-500 font-medium animate-pulse">Initializing Glacier AI Network...</p>
+      <div className="h-screen flex flex-col items-center justify-center space-y-4 bg-slate-950">
+        <div className="animate-spin text-indigo-400">{ICONS.IceCream}</div>
+        <p className="text-indigo-200/50 font-bold uppercase tracking-[0.3em] animate-pulse text-[10px]">Encrypting Gateway Link...</p>
       </div>
     );
   }
@@ -111,9 +155,30 @@ const App: React.FC = () => {
     <Layout 
       user={user} 
       cartCount={cart.reduce((acc, i) => acc + i.quantity, 0)} 
-      onNavigate={(v: any) => setView(v)} 
-      onOpenCart={() => setIsCartOpen(true)}
+      onNavigate={navigateTo} 
+      onOpenCart={() => user ? setIsCartOpen(true) : navigateTo('auth')}
+      onSignOut={handleSignOut}
     >
+      {/* ----------------- AUTH REQUIRED POPUP ----------------- */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setShowAuthModal(false)} />
+          <div className="relative bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full text-center animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              {ICONS.Secure}
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Member Access Only</h3>
+            <p className="text-slate-500 mb-8 font-medium">To browse the menu, use our AI, or manage your profile, please sign in or create an account.</p>
+            <button 
+              onClick={() => setShowAuthModal(false)}
+              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black hover:bg-indigo-600 transition-all shadow-xl"
+            >
+              Understand
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ----------------- CART OVERLAY ----------------- */}
       {isCartOpen && (
         <div className="fixed inset-0 z-[60] overflow-hidden">
@@ -128,7 +193,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center justify-center py-32 text-slate-300">
                   <div className="scale-[2] mb-8">{ICONS.IceCream}</div>
                   <p className="text-lg font-medium">Your scoop bag is empty.</p>
-                  <button onClick={() => { setIsCartOpen(false); setView('menu'); }} className="mt-4 text-indigo-600 font-bold hover:underline">Browse Menu</button>
+                  <button onClick={() => { setIsCartOpen(false); navigateTo('menu'); }} className="mt-4 text-indigo-600 font-bold hover:underline">Browse Menu</button>
                 </div>
               ) : (
                 cart.map(item => (
@@ -160,18 +225,14 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* ----------------- HOME VIEW ----------------- */}
+      {/* ----------------- HOME VIEW (Public) ----------------- */}
       {view === 'home' && (
         <div className="pb-24">
-          {/* HERO SECTION - COMPACT 60VH HEIGHT */}
           <section className="relative h-[60vh] min-h-[450px] flex items-center overflow-hidden bg-slate-950">
-            {/* Background elements */}
             <div className="absolute inset-0">
               <img src="https://images.unsplash.com/photo-1576506295286-5cda18df43e7?q=80&w=2000" className="w-full h-full object-cover opacity-40" alt="Hero" />
               <div className="absolute inset-0 bg-gradient-to-b from-slate-950/90 via-slate-950/30 to-slate-950" />
-              <div className="absolute top-1/2 left-1/4 w-[350px] h-[350px] bg-indigo-500/10 rounded-full blur-[80px] -translate-y-1/2" />
             </div>
-
             <div className="relative max-w-7xl mx-auto px-6 w-full z-10 py-8">
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-3 px-4 py-1.5 mb-5 text-[9px] font-black tracking-[0.3em] text-indigo-400 uppercase bg-indigo-500/10 backdrop-blur-xl rounded-full border border-indigo-400/20">
@@ -185,230 +246,240 @@ const App: React.FC = () => {
                   Bespoke micro-batches engineered precisely for your palate by our sensory AI. Future flavor, calculated today.
                 </p>
                 <div className="flex flex-wrap gap-4">
-                  <button 
-                    onClick={() => setView('menu')} 
-                    className="bg-white text-slate-950 px-7 py-3.5 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95"
-                  >
-                    Enter Library
-                  </button>
-                  <button 
-                    onClick={() => setView('ai')} 
-                    className="px-7 py-3.5 rounded-xl font-black text-sm text-white bg-indigo-600/20 backdrop-blur-xl border border-indigo-400/30 hover:bg-indigo-600 transition-all flex items-center gap-3 hover:scale-105 active:scale-95"
-                  >
-                    {ICONS.AI} Concierge AI
-                  </button>
+                  <button onClick={() => navigateTo('menu')} className="bg-white text-slate-950 px-7 py-3.5 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95">Enter Library</button>
+                  <button onClick={() => navigateTo('ai')} className="px-7 py-3.5 rounded-xl font-black text-sm text-white bg-indigo-600/20 backdrop-blur-xl border border-indigo-400/30 hover:bg-indigo-600 transition-all flex items-center gap-3 hover:scale-105 active:scale-95">{ICONS.AI} Concierge AI</button>
                 </div>
               </div>
             </div>
           </section>
-
-          {/* CURATED SELECTION SECTION */}
+          
           <section className="max-w-7xl mx-auto px-6 pt-16">
-            <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-6">
-              <div className="max-w-xl">
-                <h2 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">Curated Batch.</h2>
-                <p className="text-slate-500 text-lg font-medium">Limited syntheses, verified by AI.</p>
+            <div className="flex justify-between items-end mb-10">
+              <div>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tight">Public Batch.</h2>
+                <p className="text-slate-400 text-sm font-medium mt-1">Samples available for guest viewing.</p>
               </div>
-              <button onClick={() => setView('menu')} className="group text-indigo-600 font-black flex items-center text-lg transition-all hover:underline">
-                The Archive <span className="ml-2 group-hover:translate-x-1 transition-transform">&rarr;</span>
-              </button>
+              <button onClick={() => navigateTo('menu')} className="text-indigo-600 font-black flex items-center hover:underline">Full Archive &rarr;</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {products.slice(0, 6).map(product => (
-                <ProductCard key={product.id} product={product} onAddToCart={addToCart} />
-              ))}
+              {products.slice(0, 6).map(product => <ProductCard key={product.id} product={product} onAddToCart={addToCart} />)}
             </div>
           </section>
-        </div>
-      )}
-
-      {/* ----------------- MENU VIEW ----------------- */}
-      {view === 'menu' && (
-        <div className="max-w-7xl mx-auto px-6 py-24">
-          <div className="max-w-3xl mb-20">
-            <h2 className="text-6xl font-black text-slate-900 mb-6 tracking-tight">Flavor Library</h2>
-            <p className="text-slate-500 text-xl leading-relaxed">Browse our complete collection of futuristic and classic flavors. All our products are sourced from sustainable producers and quality-certified by Glacier AI.</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-            {products.map(product => (
-              <ProductCard key={product.id} product={product} onAddToCart={addToCart} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ----------------- AI CONCIERGE ----------------- */}
-      {view === 'ai' && (
-        <div className="max-w-5xl mx-auto px-6 py-24">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl p-12 md:p-16 border border-slate-100 overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-[40rem] h-[40rem] bg-indigo-50 rounded-full -translate-y-1/2 translate-x-1/2 blur-[100px] opacity-60" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-6 mb-10">
-                <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white text-3xl shadow-xl shadow-indigo-200">
-                  {ICONS.AI}
-                </div>
-                <div>
-                  <h2 className="text-5xl font-black text-slate-900 tracking-tight">Flavor Concierge</h2>
-                  <p className="text-indigo-600 font-bold uppercase tracking-widest text-xs">Neural Network Recommendation System</p>
-                </div>
-              </div>
-              
-              <p className="text-slate-500 mb-12 text-xl leading-relaxed">Describe your mood, the current vibe, or a secret craving. Our AI will analyze your description and match it with the perfect artisan scoop from our inventory.</p>
-              
-              <div className="space-y-8">
-                <div className="relative group">
-                  <textarea 
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-3xl p-8 text-xl focus:border-indigo-500 focus:bg-white focus:outline-none transition-all duration-300 shadow-inner min-h-[160px]"
-                    placeholder="Example: I want something that feels like a sunset in Tokyo, creamy but surprisingly sharp..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        askAI((e.target as HTMLTextAreaElement).value);
-                      }
-                    }}
-                  />
-                  <div className="absolute bottom-6 right-6 flex items-center gap-2 text-slate-400 text-sm font-medium">
-                    Press <span className="bg-white border px-2 py-0.5 rounded-lg shadow-sm">Enter</span> to analyze
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={() => askAI((document.querySelector('textarea') as HTMLTextAreaElement).value)}
-                  disabled={aiLoading}
-                  className="group relative inline-flex items-center justify-center px-10 py-5 bg-slate-900 text-white font-black text-lg rounded-2xl overflow-hidden transition-all hover:bg-indigo-600 disabled:opacity-50"
-                >
-                  <span className="relative flex items-center gap-3">
-                    {aiLoading ? (
-                      <span className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : ICONS.AI}
-                    {aiLoading ? 'Synthesizing Taste Profile...' : 'Get Recommendation'}
-                  </span>
-                </button>
-              </div>
-
-              {aiResponse && (
-                <div className="mt-16 p-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2rem] text-white shadow-2xl shadow-indigo-200 animate-in fade-in slide-in-from-bottom-8 duration-700">
-                  <div className="flex items-center gap-4 mb-6">
-                    <span className="text-sm font-black uppercase tracking-[0.2em] bg-white/20 px-4 py-1.5 rounded-full backdrop-blur-md">Match Found</span>
-                  </div>
-                  <h3 className="text-4xl font-black mb-6 leading-tight">Our Suggestion: {aiResponse.flavor}</h3>
-                  <p className="text-indigo-50 text-xl leading-relaxed mb-10 opacity-90">
-                    "{aiResponse.reason}"
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    {aiResponse.adjectives.map((adj: string) => (
-                      <span key={adj} className="bg-white/15 backdrop-blur-md px-5 py-2 rounded-xl text-sm font-bold border border-white/20">
-                        {adj}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
       {/* ----------------- AUTH VIEW ----------------- */}
       {view === 'auth' && (
-        <div className="max-w-md mx-auto px-6 py-32">
-          <div className="bg-white p-12 rounded-[2.5rem] shadow-2xl border border-slate-100">
+        <div className="max-w-md mx-auto px-6 py-24 animate-in fade-in duration-500">
+          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500" />
+            
             <div className="text-center mb-10">
-              <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-900 mx-auto mb-6">
-                {ICONS.User}
-              </div>
-              <h2 className="text-3xl font-black text-slate-900 mb-2">Welcome Back</h2>
-              <p className="text-slate-500 font-medium">Step into the future of taste.</p>
+              <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">{ICONS.User}</div>
+              <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">{authMode === 'login' ? 'Sign In' : 'New Account'}</h2>
+              <p className="text-slate-500 font-medium text-sm">Access the secure taste network infrastructure.</p>
             </div>
-            <form onSubmit={handleLogin} className="space-y-6">
+
+            {authError && (
+              <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-2">
+                <div className="w-8 h-8 bg-red-500 text-white rounded-lg flex items-center justify-center text-lg font-bold">!</div>
+                <div>
+                  <p className="text-red-700 text-sm font-black">{authError}</p>
+                  {authError.includes('create an account') && (
+                    <button 
+                      onClick={() => setAuthMode('signup')}
+                      className="text-red-500 text-xs font-bold hover:underline mt-0.5"
+                    >
+                      Switch to Sign Up
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            <form onSubmit={handleAuth} className="space-y-5">
+              {authMode === 'signup' && (
+                <div className="animate-in slide-in-from-top-2 duration-300">
+                  <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Full Name</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formData.name}
+                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    placeholder="Identity Label"
+                    className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
+                  />
+                </div>
+              )}
               <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Email Address</label>
+                <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Email Address</label>
                 <input 
                   type="email" 
-                  defaultValue="scoops@glacier.ai"
-                  className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium"
-                  readOnly
+                  required
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
+                  placeholder="name@glacier.ai"
+                  className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Password</label>
+                <label className="block text-xs font-black uppercase text-slate-400 mb-2 ml-1 tracking-widest">Access Key</label>
                 <input 
                   type="password" 
-                  defaultValue="password123"
-                  className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium"
-                  readOnly
+                  required
+                  value={formData.password}
+                  onChange={e => setFormData({...formData, password: e.target.value})}
+                  placeholder="••••••••"
+                  className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium outline-none"
                 />
               </div>
+              
               <button 
                 type="submit"
-                className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-lg hover:bg-indigo-600 transition-all shadow-xl active:scale-[0.98]"
+                disabled={authLoading}
+                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-lg hover:bg-indigo-600 transition-all shadow-xl active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 tracking-tight"
               >
-                Enter Boutique
+                {authLoading && <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                {authMode === 'login' ? 'Verify Credentials' : 'Initialize Account'}
               </button>
-              <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100 mt-6">
-                <p className="text-[10px] text-center text-indigo-600 font-bold uppercase tracking-widest leading-relaxed">
-                  Production Mode Simulation<br />Gateway Handshake Verified
-                </p>
-              </div>
             </form>
+
+            <div className="mt-8 text-center">
+              <button 
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'signup' : 'login');
+                  setAuthError(null);
+                }}
+                className="text-sm font-bold text-indigo-600 hover:text-slate-950 transition-colors"
+              >
+                {authMode === 'login' ? "New here? Create Access Profile" : "Existing Member? Return to Login"}
+              </button>
+            </div>
+
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 mt-8">
+              <p className="text-[9px] text-center text-slate-500 font-black uppercase tracking-[0.2em] leading-relaxed">
+                MySQL Persistent Connection Active<br />Java Production Handshake Encrypted
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ----------------- PROFILE VIEW ----------------- */}
-      {view === 'profile' && (
-        <div className="max-w-5xl mx-auto px-6 py-24">
-          <div className="flex flex-col md:flex-row items-center gap-10 mb-20">
-            <div className="w-32 h-32 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black shadow-2xl shadow-indigo-200">
-              {user?.name?.[0]}
-            </div>
-            <div className="text-center md:text-left">
-              <h2 className="text-5xl font-black text-slate-900 mb-2">{user?.name}</h2>
-              <p className="text-slate-500 text-xl font-medium mb-4">{user?.email}</p>
-              <div className="inline-flex items-center gap-3 px-4 py-2 bg-green-50 text-green-700 rounded-full border border-green-100">
-                {ICONS.Secure} <span className="text-xs font-black uppercase tracking-widest">Verified Collector</span>
+      {/* ----------------- PROFILE VIEW (Protected) ----------------- */}
+      {view === 'profile' && user && (
+        <div className="max-w-5xl mx-auto px-6 py-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white p-12 rounded-[3rem] border border-slate-100 shadow-xl mb-12">
+            <div className="flex flex-col md:flex-row items-center gap-10">
+              <div className="w-32 h-32 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white text-5xl font-black shadow-2xl relative overflow-hidden group">
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
+                {user.name[0]}
+              </div>
+              <div className="flex-grow text-center md:text-left">
+                <h2 className="text-5xl font-black text-slate-900 mb-2 tracking-tight">{user.name}</h2>
+                <p className="text-slate-500 text-xl font-medium mb-6">{user.email}</p>
+                <div className="flex flex-wrap justify-center md:justify-start gap-4">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full border border-green-100">
+                    {ICONS.Secure} <span className="text-[10px] font-black uppercase tracking-widest">Authenticated Collector</span>
+                  </div>
+                  <button 
+                    onClick={handleSignOut}
+                    className="inline-flex items-center gap-2 px-6 py-2 bg-red-50 text-red-600 rounded-full border border-red-100 hover:bg-red-600 hover:text-white transition-all font-black text-[10px] uppercase tracking-widest"
+                  >
+                    Terminate Session
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="space-y-8">
-            <h3 className="text-3xl font-black text-slate-900 mb-4">Past Transactions</h3>
-            {orders.length === 0 ? (
-              <div className="bg-white p-20 text-center rounded-[2.5rem] border border-slate-100 shadow-sm">
-                <div className="text-slate-200 scale-150 mb-8">{ICONS.Cart}</div>
-                <p className="text-slate-400 text-lg font-medium">Your order history is a blank canvas.</p>
-                <button onClick={() => setView('menu')} className="mt-6 text-indigo-600 font-black hover:underline">Start Your Collection</button>
-              </div>
-            ) : (
-              orders.map(order => (
-                <div key={order.id} className="bg-white p-8 rounded-[2rem] border border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center shadow-sm hover:shadow-md transition-shadow gap-6">
-                  <div>
-                    <div className="flex items-center gap-4 mb-3">
-                      <span className="font-black text-xl text-slate-900 tracking-tight">Order #{order.id}</span>
-                      <span className="px-3 py-1 bg-yellow-400 text-slate-900 text-[10px] font-black rounded-lg uppercase tracking-wider">
-                        {order.status}
-                      </span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+            <div className="lg:col-span-2">
+              <h3 className="text-3xl font-black text-slate-900 mb-8 tracking-tight">Order Logs</h3>
+              <div className="space-y-6">
+                {orders.length === 0 ? (
+                  <div className="bg-white p-12 rounded-[2rem] border border-slate-100 text-center shadow-sm">
+                    <p className="text-slate-400 font-medium">No production logs found in the MySQL database.</p>
+                  </div>
+                ) : (
+                  orders.map(o => (
+                    <div key={o.id} className="bg-white p-8 rounded-3xl border border-slate-100 flex justify-between items-center shadow-sm hover:border-indigo-200 transition-colors">
+                      <div>
+                        <p className="font-black text-lg text-slate-900">Reference #{o.id}</p>
+                        <p className="text-slate-500 text-sm">{new Date(o.createdAt).toLocaleDateString()} • {o.items.length} Units Synthesis</p>
+                      </div>
+                      <p className="text-2xl font-black text-slate-900">{CURRENCY}{o.total.toFixed(2)}</p>
                     </div>
-                    <p className="text-slate-500 font-medium">
-                      {new Date(order.createdAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })} &bull; {order.items.length} artisan scoops
-                    </p>
+                  ))
+                )}
+              </div>
+            </div>
+            
+            <div className="space-y-8">
+               <h3 className="text-3xl font-black text-slate-900 tracking-tight">System Info</h3>
+               <div className="bg-slate-950 p-8 rounded-[2.5rem] text-slate-400 space-y-6">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">User Role</p>
+                    <p className="text-white font-bold">{user.role.toUpperCase()}</p>
                   </div>
-                  <div className="sm:text-right w-full sm:w-auto border-t sm:border-0 pt-6 sm:pt-0">
-                    <p className="font-black text-3xl text-slate-900 mb-2">{CURRENCY}{order.total.toFixed(2)}</p>
-                    <button className="text-sm text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all">Download Receipt</button>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">Account ID</p>
+                    <p className="text-white font-mono text-sm">{user.id}</p>
                   </div>
-                </div>
-              ))
-            )}
+                  <div className="pt-6 border-t border-slate-800">
+                    <p className="text-[9px] leading-relaxed opacity-50 italic">Account synchronized via high-speed Java API Gateway. Data persisted in MySQL cluster node 4-B.</p>
+                  </div>
+               </div>
+            </div>
           </div>
-          
-          <div className="mt-20 pt-10 border-t border-slate-100 flex justify-center">
-             <button 
-              onClick={() => { setUser(null); setView('home'); }} 
-              className="px-8 py-3 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 text-sm font-black transition-all uppercase tracking-widest"
+        </div>
+      )}
+
+      {/* ----------------- MENU VIEW (Protected) ----------------- */}
+      {view === 'menu' && (
+        <div className="max-w-7xl mx-auto px-6 py-24 animate-in fade-in duration-500">
+          <div className="max-w-3xl mb-16">
+            <h2 className="text-6xl font-black text-slate-900 mb-4 tracking-tighter">Full Archive</h2>
+            <p className="text-slate-500 text-lg font-medium leading-relaxed">Browse the complete experimental database. These micro-batches are restricted for authenticated members only.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+            {products.map(p => <ProductCard key={p.id} product={p} onAddToCart={addToCart} />)}
+          </div>
+        </div>
+      )}
+      
+      {/* ----------------- AI VIEW (Protected) ----------------- */}
+      {view === 'ai' && (
+        <div className="max-w-4xl mx-auto px-6 py-24 animate-in zoom-in-95 duration-500">
+          <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+            <h2 className="text-4xl font-black text-slate-900 mb-8 flex items-center gap-4 relative z-10 tracking-tight">{ICONS.AI} Flavor Concierge</h2>
+            <p className="text-slate-500 mb-8 font-medium relative z-10">Describe your sensory preference and our neural engine will determine your perfect match.</p>
+            <textarea 
+              className="w-full bg-slate-50 rounded-2xl p-6 text-lg border-2 border-slate-100 focus:border-indigo-500 outline-none transition-all mb-6 min-h-[150px] relative z-10 font-medium"
+              placeholder="e.g. 'I want something smoky and complex with a hint of floral sweetness'..."
+            />
+            <button 
+              onClick={() => askAI((document.querySelector('textarea') as HTMLTextAreaElement).value)}
+              disabled={aiLoading}
+              className="bg-slate-900 text-white px-10 py-5 rounded-2xl font-black hover:bg-indigo-600 transition-all flex items-center gap-3 disabled:opacity-50 relative z-10 shadow-xl"
             >
-              Sign Out from Gateway Session
+              {aiLoading ? <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : ICONS.AI}
+              {aiLoading ? 'Accessing Neural Node...' : 'Calculate Perfect Scoop'}
             </button>
+            {aiResponse && (
+              <div className="mt-10 p-10 bg-indigo-600 text-white rounded-[2.5rem] animate-in slide-in-from-bottom-6 duration-700 shadow-2xl shadow-indigo-200">
+                <div className="flex items-center gap-3 mb-4">
+                   <div className="bg-white/20 p-2 rounded-lg">{ICONS.Sparkles}</div>
+                   <h3 className="text-2xl font-black tracking-tight">Neural Match: {aiResponse.flavor}</h3>
+                </div>
+                <p className="opacity-90 leading-relaxed font-medium text-lg">{aiResponse.reason}</p>
+                <div className="flex gap-3 mt-8">
+                   {aiResponse.adjectives.map((a: string) => (
+                     <span key={a} className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest">{a}</span>
+                   ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

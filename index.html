@@ -10,6 +10,33 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         h1, h2, h3 { font-family: 'Playfair Display', serif; }
+
+        @keyframes shimmer {
+          0% { background-position: -200% center; }
+          100% { background-position: 200% center; }
+        }
+
+        .brand-shimmer {
+          background: linear-gradient(90deg, #facc15, #f97316, #ec4899, #8b5cf6, #facc15);
+          background-size: 200% auto;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: shimmer 3s linear infinite;
+        }
+
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+
+        .brand-float {
+          animation: float 4s ease-in-out infinite;
+        }
+
+        .neon-glow {
+          text-shadow: 0 0 10px rgba(139, 92, 246, 0.3), 0 0 20px rgba(236, 72, 153, 0.2);
+        }
     </style>
 <script type="importmap">
 {

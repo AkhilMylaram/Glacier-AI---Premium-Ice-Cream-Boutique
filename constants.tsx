@@ -12,6 +12,8 @@ export const ICONS = {
   Chat: <MessageSquare className="w-5 h-5" />,
   Voice: <Mic className="w-5 h-5" />,
   AI: <Sparkles className="w-5 h-5" />,
+  // Added Sparkles icon to resolve "Property 'Sparkles' does not exist" error in App.tsx
+  Sparkles: <Sparkles className="w-5 h-5" />,
   Secure: <ShieldCheck className="w-5 h-5 text-green-500" />
 };
 

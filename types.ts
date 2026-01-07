@@ -13,6 +13,12 @@ export interface User {
   role: 'customer' | 'admin';
 }
 
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
 export interface Product {
   id: string;
   name: string;
