@@ -12,9 +12,11 @@ export const ICONS = {
   Chat: <MessageSquare className="w-5 h-5" />,
   Voice: <Mic className="w-5 h-5" />,
   AI: <Sparkles className="w-5 h-5" />,
-  // Added Sparkles icon to resolve "Property 'Sparkles' does not exist" error in App.tsx
   Sparkles: <Sparkles className="w-5 h-5" />,
   Secure: <ShieldCheck className="w-5 h-5 text-green-500" />
 };
 
-export const GATEWAY_ENDPOINT = "https://api-gateway.glacier-ai.internal/v1";
+// Dynamic endpoint: Uses localhost for dev, but targets the Gateway port on the current host for EC2 production
+export const GATEWAY_ENDPOINT = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+  ? "http://localhost:8080" 
+  : `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8080`;

@@ -1,53 +1,63 @@
+
 version: '3.8'
 
 services:
-  # --- Frontend Application ---
+  # --- Frontend Application (Served via Nginx on Port 80) ---
   frontend:
     build:
       context: .
-      dockerfile: docker-files/frontend-docker.io
+      dockerfile: docker-files/frontend.Dockerfile
+      args:
+        - API_KEY=${API_KEY}
     ports:
-      - "3000:3000"
+      - "80:80"
     environment:
-      - API_KEY=${API_KEY}
-      - VITE_GATEWAY_URL=http://localhost:8080
+      - NODE_ENV=production
     depends_on:
       - api-gateway
     networks:
       - glacier-network
+    restart: always
 
-  # --- API Gateway ---
+  # --- API Gateway (Entry point for Microservices on Port 8080) ---
   api-gateway:
     build:
       context: .
-      dockerfile: docker-files/apigateway-docker.io
+      dockerfile: docker-files/apigateway.Dockerfile
     ports:
       - "8080:8080"
+    environment:
+      - NODE_ENV=production
     depends_on:
       - auth-service
       - catalog-service
     networks:
       - glacier-network
+    restart: always
 
-  # --- Authentication Service ---
+  # --- Authentication Service (Internal Identity Node) ---
   auth-service:
     build:
       context: .
-      dockerfile: docker-files/authentication-docker.io
+      dockerfile: docker-files/authentication.Dockerfile
     environment:
       - PORT=3001
+      - NODE_ENV=production
     networks:
       - glacier-network
+    restart: always
 
-  # --- Catalog & Order Service ---
+  # --- Catalog & Order Service (Internal Resource Node) ---
   catalog-service:
     build:
       context: .
-      dockerfile: docker-files/catalog-docker.io
+      dockerfile: docker-files/catalog.Dockerfile
     environment:
       - PORT=3002
+      - NODE_ENV=production
     networks:
       - glacier-network
+    restart: always
 
 networks:
   glacier-network:
