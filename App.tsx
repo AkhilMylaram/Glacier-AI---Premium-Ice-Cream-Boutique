@@ -192,10 +192,23 @@ const App: React.FC = () => {
   const handleCheckout = async () => {
     if (!user) return navigateTo('auth');
     setLoading(true);
-    const res = await gateway.request<Order>('catalog', '/order/create', {
+    
+    // Format items for the new API
+    const orderItems = cart.map(item => ({
+      productId: item.id,
+      quantity: item.quantity
+    }));
+
+    const res = await gateway.request<Order>('catalog', '/order', {
       method: 'POST',
-      body: JSON.stringify({ userId: user.id, items: cart, total: cartTotal, status: OrderStatus.PENDING })
+      body: JSON.stringify({ 
+        userId: user.id, 
+        items: orderItems,
+        paymentMethod: 'card',
+        notes: 'Online order from Glacier AI'
+      })
     });
+    
     if (res.data) {
       setCart([]);
       setIsCartOpen(false);

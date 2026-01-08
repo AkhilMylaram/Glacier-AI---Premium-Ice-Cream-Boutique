@@ -1,3 +1,93 @@
+version: '3.8'
+
+services:
+  # MySQL (single authoritative DB)
+  mysql:
+    image: mysql:8.0
+    container_name: glacier-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-example}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-glacier_ai}
+      MYSQL_USER: ${MYSQL_USER:-glacier}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-glacier}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - glacier-network
+
+  # API Gateway (Go)
+  api-gateway:
+    build:
+      context: ./apigateway-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - CATALOG_SERVICE_URL=http://catalog-service:3002
+    depends_on:
+      - auth-service
+      - catalog-service
+      - mysql
+    networks:
+      - glacier-network
+
+  # Authentication Service (Java / Spring Boot)
+  auth-service:
+    build:
+      context: .
+      dockerfile: docker-files/authentication.Dockerfile
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-glacier_ai}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USER:-glacier}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-glacier}
+      - JWT_SECRET=${JWT_SECRET:-change-me}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mysql
+    networks:
+      - glacier-network
+
+  # Catalog Service (Python / FastAPI)
+  catalog-service:
+    build:
+      context: .
+      dockerfile: docker-files/catalog.Dockerfile
+    environment:
+      - DATABASE_URL=mysql+mysqlconnector://${MYSQL_USER:-glacier}:${MYSQL_PASSWORD:-glacier}@mysql:3306/${MYSQL_DATABASE:-glacier_ai}
+    ports:
+      - "3002:3002"
+    depends_on:
+      - mysql
+    networks:
+      - glacier-network
+
+  # Frontend (static build served by nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: docker-files/frontend.Dockerfile
+      args:
+        - API_KEY=${API_KEY}
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - glacier-network
+
+networks:
+  glacier-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
 
 version: '3.8'
 
