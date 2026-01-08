@@ -1,8 +1,10 @@
+
 import { ApiResponse } from '../types';
-import { GatewayRouter } from '../apigateway-service/router';
 
 class ApiGatewayClient {
   private static instance: ApiGatewayClient;
+  // Using 127.0.0.1 helps bypass some DNS resolution issues in local environments
+  private baseUrl = 'http://127.0.0.1:8080';
   
   private constructor() {}
 
@@ -13,39 +15,33 @@ class ApiGatewayClient {
     return ApiGatewayClient.instance;
   }
 
-  /**
-   * Universal Request Handler
-   * This is the Frontend's interface to the API Gateway.
-   */
   async request<T>(
-    service: 'auth' | 'product' | 'order' | 'user',
+    service: 'auth' | 'catalog',
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    const method = options.method || 'GET';
-    const body = options.body ? JSON.parse(options.body as string) : null;
+    const url = `${this.baseUrl}/${service}${endpoint}`;
     
-    // Simulate network overhead to the Gateway
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-
     try {
-      // Logic: The client calls the Gateway Service, not the downstream microservices directly.
-      const responseData = await GatewayRouter.routeRequest(service, endpoint, method, body);
-      return { data: responseData as T, status: 200 };
-    } catch (error: any) {
-      // Distinction: Only log system-level "Gateway" errors to console. 
-      // Business logic errors (like 'User not found') are passed silently to the UI response.
-      const isBusinessError = error.message && (
-        error.message.includes('Invalid') || 
-        error.message.includes('exists') || 
-        error.message.includes('found')
-      );
+      const response = await fetch(url, {
+        ...options,
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {})
+        }
+      });
 
-      if (!isBusinessError) {
-        console.error(`[GATEWAY SYSTEM ERROR]`, error);
+      const data = await response.json().catch(() => ({ error: 'Malformed JSON response' }));
+
+      if (!response.ok) {
+        return { error: data.error || 'Request failed', status: response.status };
       }
-      
-      return { error: error.message || 'Gateway connection failed', status: 500 };
+
+      return { data: data as T, status: response.status };
+    } catch (error: any) {
+      console.error(`[FRONTEND GATEWAY ERROR]`, error.message);
+      return { error: 'Gateway connection failed. Ensure npm run dev:all is running.', status: 503 };
     }
   }
 }

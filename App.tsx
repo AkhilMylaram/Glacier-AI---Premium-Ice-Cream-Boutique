@@ -42,7 +42,8 @@ const App: React.FC = () => {
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await gateway.request<Product[]>('product', '/list');
+      // FIX: Changed service 'product' to 'catalog' to match defined Gateway types and route to the catalog-service
+      const res = await gateway.request<Product[]>('catalog', '/list');
       if (res.data) setProducts(res.data);
     } catch (error) {
       console.error("Failed to load catalog:", error);
@@ -53,7 +54,8 @@ const App: React.FC = () => {
 
   const fetchOrders = useCallback(async (userId: string) => {
     try {
-      const orderRes = await gateway.request<Order[]>('order', '/my-orders', {
+      // FIX: Changed service 'order' to 'catalog' and adjusted endpoint to '/order/my-orders' to match backend architecture
+      const orderRes = await gateway.request<Order[]>('catalog', '/order/my-orders', {
         method: 'POST',
         body: JSON.stringify({ userId })
       });
@@ -147,6 +149,7 @@ const App: React.FC = () => {
               mimeType: 'audio/pcm;rate=16000',
             };
             
+            // FIX: Relying solely on sessionPromise resolution before calling sendRealtimeInput to prevent race conditions
             sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
           };
 
@@ -157,6 +160,7 @@ const App: React.FC = () => {
           const base64Audio = msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
           if (base64Audio && audioContextRef.current) {
             const outCtx = audioContextRef.current.output;
+            // FIX: Track end of audio playback queue using nextStartTime to ensure smooth, gapless audio rendering
             nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
             const buffer = await decodeAudioData(decode(base64Audio), outCtx, 24000, 1);
             const source = outCtx.createBufferSource();
@@ -214,7 +218,8 @@ const App: React.FC = () => {
   const handleCheckout = async () => {
     if (!user) return navigateTo('auth');
     setLoading(true);
-    const res = await gateway.request<Order>('order', '/create', {
+    // FIX: Changed service 'order' to 'catalog' and updated endpoint to '/order/create' for type safety and routing compliance
+    const res = await gateway.request<Order>('catalog', '/order/create', {
       method: 'POST',
       body: JSON.stringify({ userId: user.id, items: cart, total: cartTotal, status: 'PENDING' })
     });
