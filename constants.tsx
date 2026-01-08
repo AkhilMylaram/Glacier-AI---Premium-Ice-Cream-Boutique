@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { IceCream, ShoppingCart, User, MessageSquare, Mic, Sparkles, ShieldCheck } from 'lucide-react';
 
@@ -16,7 +15,5 @@ export const ICONS = {
   Secure: <ShieldCheck className="w-5 h-5 text-green-500" />
 };
 
-// Dynamic endpoint: Uses localhost for dev, but targets the Gateway port on the current host for EC2 production
-export const GATEWAY_ENDPOINT = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-  ? "http://localhost:8080" 
-  : `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8080`;
+// Target the Go API Gateway (8080)
+export const GATEWAY_ENDPOINT = "http://localhost:8080";

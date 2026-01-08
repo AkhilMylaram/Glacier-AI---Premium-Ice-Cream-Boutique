@@ -1,10 +1,8 @@
-
 import { ApiResponse } from '../types';
 
 class ApiGatewayClient {
   private static instance: ApiGatewayClient;
-  // Using 127.0.0.1 helps bypass some DNS resolution issues in local environments
-  private baseUrl = 'http://127.0.0.1:8080';
+  private baseUrl = 'http://localhost:8080';
   
   private constructor() {}
 
@@ -25,14 +23,13 @@ class ApiGatewayClient {
     try {
       const response = await fetch(url, {
         ...options,
-        mode: 'cors',
         headers: {
           'Content-Type': 'application/json',
           ...(options.headers || {})
         }
       });
 
-      const data = await response.json().catch(() => ({ error: 'Malformed JSON response' }));
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         return { error: data.error || 'Request failed', status: response.status };
@@ -41,7 +38,7 @@ class ApiGatewayClient {
       return { data: data as T, status: response.status };
     } catch (error: any) {
       console.error(`[FRONTEND GATEWAY ERROR]`, error.message);
-      return { error: 'Gateway connection failed. Ensure npm run dev:all is running.', status: 503 };
+      return { error: 'Gateway Connection Failed', status: 503 };
     }
   }
 }

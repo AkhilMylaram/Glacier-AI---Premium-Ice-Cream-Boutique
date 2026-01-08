@@ -1,0 +1,28 @@
+GLACIER AI - POLYGLOT MICROSERVICES ARCHITECTURE OVERVIEW
+
+1. ARCHITECTURAL DESIGN
+This project implements a decoupled, distributed system using three different programming languages to leverage their specific strengths:
+- Go: High-performance concurrency for the API Gateway.
+- Java: Robustness and type-safety for Identity Management (Auth).
+- Python: Rapid development and rich ecosystem for the Product Catalog and Logic.
+
+2. SERVICE TOPOLOGY
+- API GATEWAY (Go @ 8080): The "Edge" of the system. Routes traffic to internal services.
+- AUTH SERVICE (Java @ 3001): Handles secure registration, login, and user profiles.
+- CATALOG SERVICE (Python @ 3002): Manages artisanal products, inventory, and transaction history.
+- DATABASE (MySQL @ 3306): Shared persistent storage with normalized tables.
+
+3. DATA FLOW
+[UI] --(fetch/POST)--> [Go Gateway:8080]
+                            |
+            +---------------+---------------+
+            |                               |
+    [/auth] v                       [/catalog] v
+    [Java Auth:3001]                [Python Catalog:3002]
+            |                               |
+            +------------> [MySQL] <--------+
+
+4. KEY FEATURES
+- Real-time Voice AI: Integrated directly into the frontend via Gemini Live API.
+- Unified Ledger: Orders placed via Python are immediately visible in the Java-authenticated profile.
+- Modern Tooling: Java 21 (Virtual Threads ready), Python 3.12 (FastAPI), Go 1.22 (Standard Library Proxy).
