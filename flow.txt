@@ -1,0 +1,68 @@
+FLOW: Glacier AI — Request & Data Flow
+
+1) High-level sequence (typical authenticated user flow)
+- User (browser) -> Frontend UI (React/Vite)
+- Frontend calls API Gateway at `http://localhost:8080` for all backend interactions
+- Gateway routes requests to backend services based on path:
+  - `/api/auth/*` -> Auth Service (http://auth-service:3001)
+  - `/api/catalog/*`, `/api/products/*`, `/api/orders/*`, `/api/categories/*` -> Catalog Service (http://catalog-service:3002)
+
+2) Authentication flow (register / login)
+- Register: Frontend POST `/api/auth/register` -> Gateway -> Auth Service
+  - Auth Service validates input, stores user in `users` table (MySQL), hashes password (bcrypt), returns success
+- Login: Frontend POST `/api/auth/login` -> Gateway -> Auth Service
+  - Auth Service validates credentials -> issues JWT (signed with `JWT_SECRET`) and/or stores a session in `user_sessions` table -> returns token
+- Frontend stores token (secure storage) and includes `Authorization: Bearer <token>` in subsequent requests
+
+3) Place order flow
+- Frontend POST `/api/orders` (Authorization header included) -> Gateway
+- Gateway forwards to Catalog Service
+  - Catalog verifies token (calls Auth internally or Gateway JWT middleware; current repository simulates token verification; production should call Auth for validation or use shared verification keys)
+  - Catalog validates product availability by reading `products` table
+  - Catalog writes `orders` and `order_items` rows to MySQL and decrements `products.inventory`
+  - Catalog returns order confirmation; Gateway normalizes response for frontend
+
+4) Order history / profile read flow
+- Frontend GET `/api/auth/users/{id}/orders` or `/api/auth/profile` -> Gateway -> Auth Service
+  - Auth Service queries `orders` (joined on `user_id`) and returns user order history and profile info
+
+5) Ownership of schema and tables (who is authoritative)
+- Auth Service:
+  - Owns `users`, `user_profiles`, `user_sessions` tables and should be primary writer for user records
+  - Reads `orders` for user history
+- Catalog Service:
+  - Owns `products`, `categories`, `orders`, `order_items`, `cart_items`, `carts` (creates orders and items)
+  - Writes order rows and inventory updates
+- Shared DB (MySQL): single source of truth; services use transactions and FK constraints defined in `database/init.sql`
+
+6) Gateway responsibilities
+- Expose single entrypoint to UI
+- Route by URL prefix to internal service
+- (Optional/Recommended) Validate JWT at edge to reduce repeated calls to Auth and prevent unauthenticated traffic from hitting services
+- Normalize JSON responses for consistent frontend handling (already implemented in `apigateway-service/main.go`)
+
+7) Ports & service addresses used by `docker-compose`
+- Gateway: `http://localhost:8080` (routes to service DNS names in compose)
+- Auth: `http://auth-service:3001` (container)
+- Catalog: `http://catalog-service:3002` (container)
+- MySQL: `mysql:3306` (container)
+
+8) Seed data and sample records
+- `database/init.sql` seeds default categories, sample products, and an admin user (password hashed). This gives immediate test data for Catalog and Auth.
+
+9) Security & production notes (short)
+- JWT secret must be strong and rotated. In Docker Compose the env var `JWT_SECRET` can be provided or injected via secret manager in production.
+- The current Catalog `verify_auth_token` function simulates token validation; for production, wire the Gateway JWT middleware or make Catalog call Auth `/verify` endpoint or verify using public keys.
+- Use TLS at the edge (gateway) in production. Use network segmentation and secrets management.
+
+10) Known limitations in this repo (what to expect when you run locally)
+- Auth service's Hibernate `ddl-auto=validate` expects the DB schema present (we provide it in `database/init.sql`). If you change schema, update `init.sql` or switch to `update`/migrations.
+- The Gateway does not currently enforce JWT verification; it wraps responses and rewrites paths. For robust auth, I can add a JWT middleware to the gateway (next task).
+
+11) Next actionable improvements (I can implement on request)
+- Add Gateway JWT verification middleware (verify/parse `Authorization` header).
+- Add health-check aggregation endpoint to Gateway that calls each service.
+- Add DB migration tooling (Flyway or Liquibase for Java; Alembic for Python) and CI scripts.
+
+---
+File created: `flow.txt` — use this as the canonical flow diagram and checklist when running locally.
