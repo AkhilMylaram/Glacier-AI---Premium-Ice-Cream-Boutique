@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Product } from '../types';
 import { CURRENCY, ICONS } from '../constants';
@@ -11,24 +12,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  // High-quality fallback: Toasted Black Sesame Ice Cream
+  // High-quality fallback: Artisanal Scoop visual
   const fallbackImage = "https://images.unsplash.com/photo-1560008511-11c63416e52d?auto=format&fit=crop&q=80&w=800";
 
   return (
     <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-[0_4px_30px_rgba(0,0,0,0.03)] hover:shadow-[0_25px_60px_rgba(79,70,229,0.15)] transition-all duration-700 border border-slate-100 group flex flex-col h-full">
       <div className="relative h-80 overflow-hidden bg-slate-50">
-        {/* Loading Spinner */}
         {!imageLoaded && !imageError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50">
-            <div className="animate-spin text-indigo-400 mb-4 scale-125 opacity-40">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 animate-pulse">
+            <div className="text-indigo-400 mb-4 scale-125 opacity-40">
               {ICONS.IceCream}
             </div>
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-300">Fetching Asset...</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Rendering Texture...</p>
           </div>
         )}
         
         <img 
-          src={imageError ? fallbackImage : product.imageUrl} 
+          src={(imageError || !product.imageUrl) ? fallbackImage : product.imageUrl} 
           alt={product.name} 
           onLoad={() => setImageLoaded(true)}
           onError={() => setImageError(true)}
@@ -59,7 +59,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
         <div className="flex justify-between items-start mb-4 gap-4">
           <div className="max-w-[70%]">
             <h3 className="text-2xl font-black text-slate-900 leading-[1.1] tracking-tight group-hover:text-indigo-600 transition-colors mb-1">{product.name}</h3>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Archival Entry #{product.id.toUpperCase()}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Entry #{product.id.toUpperCase()}</p>
           </div>
           <span className="text-3xl font-black text-indigo-600 whitespace-nowrap drop-shadow-sm">{CURRENCY}{product.price.toFixed(2)}</span>
         </div>

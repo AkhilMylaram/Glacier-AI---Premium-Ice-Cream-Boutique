@@ -1,106 +1,130 @@
-# 🍦 Glacier AI: Premium Sensory Ice Cream Boutique
 
-Glacier AI is a next-generation, microservices-driven storefront that merges artisanal ice cream with agentic AI workflows. It features real-time voice consultations via Gemini Live and a robust, distributed backend architecture.
-
-## 🏗️ Architecture & Service Flow
-
-The system follows a **Microservice Mesh** pattern optimized for scalability and low-latency sensory interactions.
-
-### The Flow
-1. **Discovery & Auth**: The Frontend initiates a secure handshake via the **API Gateway**, which routes requests to the **Authentication Service** (MySQL Node 4-B).
-2. **Artisanal Consultation**: 
-   - **Neural Text**: Direct synthesis via `gemini-3-flash-preview` for flavor matching.
-   - **Sensory Voice**: Real-time PCM audio stream to `gemini-2.5-flash-native-audio-preview` for immersive consultation.
-3. **Transaction Ledger**: Orders are funneled through the Gateway to the **Catalog Service**, persisting the transaction in a relational ledger for archival profile logs.
-4. **Asset Delivery**: High-fidelity visuals are served via an optimized Unsplash CDN layer.
-
----
-
-## 📁 Directory Structure
-
-```text
-.
-├── apigateway-service/      # Edge Router (Routes: /auth, /product, /order)
-│   ├── docs/                # Gateway specific documentation
-│   └── router.ts            # Dynamic routing logic
-├── authentication-service/  # Identity Mesh (MySQL Node 4-B)
-│   ├── db/                  # Persistent identity storage
-│   └── auth-controller.ts   # JWT & Handshake logic
-├── catalog-service/         # Resource Manager (MySQL Ledger)
-│   ├── db/                  # Relational inventory storage
-│   └── product-controller.ts # Inventory & Order logic
-├── components/              # Atomic UI Components (React + Tailwind)
-│   ├── Layout.tsx           # Premium Brand Shell
-│   └── ProductCard.tsx      # Sensory Asset Display
-├── docker-files/            # Production Environment Definitions
-│   ├── frontend.Dockerfile  # Multi-stage Nginx Build
-│   ├── apigateway.Dockerfile # Node-optimized Proxy
-│   ├── authentication.Dockerfile
-│   └── catalog.Dockerfile
-├── services/                # Core Logic Bridge
-│   ├── apiGateway.ts        # Unified Backend Client
-│   ├── geminiService.ts     # Generative AI Orchestrator
-│   └── audioUtils.ts        # PCM & Base64 Binary Handlers
-├── App.tsx                  # Application Orchestrator (View State)
-├── constants.tsx            # Global Brand Tokens & Endpoints
-├── types.ts                 # Shared Interface Definitions
-├── docker-compose.yml       # Production Orchestration
-└── package.json             # Workspace Dependency Manifest
 ```
 
----
+-- BELOW: complete, strict EC2 local-only setup (no Docker) --
 
-## 🚀 Build & Running Steps
-
-### Prerequisites
-- Docker & Docker Compose installed.
-- A valid **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/).
-
-### Local Development (Direct)
-1. Install dependencies: `npm install`
-2. Set your API Key: `export API_KEY=your_key_here`
-3. Run dev server: `npm run dev`
-
-### Production Deployment (Docker)
-Run the entire mesh with a single command:
-```bash
-# Build and start all services in detached mode
-API_KEY=your_key_here docker-compose up --build -d
-```
-
----
-
-## ☁️ Cloud Deployment (AWS EC2)
-
-This project is configured for production-grade stability on AWS EC2 instances.
-
-### 1. Security Group Configuration
-Ensure your EC2 Security Group has the following ports open:
-- **Port 80**: Frontend Access (HTTP)
-- **Port 8080**: API Gateway Access (CORS-ready)
-
-### 2. Environment Setup
-1. SSH into your EC2 instance.
-2. Clone the repository and navigate to the root.
-3. Create a `.env` file or export the variable:
-   ```bash
-   echo "API_KEY=your_actual_gemini_api_key" > .env
-   ```
-
-### 3. Launching the Mesh
-The `docker-compose.yml` uses the `frontend.Dockerfile` which implements a **multi-stage Nginx build**. This ensures high performance and low memory footprint on your EC2 instance.
+1) SSH into your Ubuntu EC2 instance:
 
 ```bash
-docker-compose --env-file .env up --build -d
+ssh -i /path/to/your-key.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-### 4. Health Check
-- Frontend: `http://<your-ec2-ip>/`
-- API Health: `http://<your-ec2-ip>:8080/product/list`
+2) Update OS and install prerequisites:
 
----
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl wget ca-certificates gnupg lsb-release unzip software-properties-common
+```
 
-## 🛡️ Reliability Features
-- **Auto-Healing**: Services are set to `restart: always` in Docker.
-- **Data Persistence**: Uses a simulated MySQL Persistent Ledger (`localStorage` versioned) for immediate mock-production testing.
-- **Responsive Mesh**: The UI dynamically switches between localhost and remote IP for API calls based on the environment.
+3) Clone repository and enter it:
+
+```bash
+git clone <REPO_GIT_URL> repo
+cd repo
+```
+
+4) Install MySQL Server and initialize DB from the repo schema:
+
+```bash
+sudo apt install -y mysql-server
+sudo systemctl enable --now mysql
+# Wait a few seconds, then import schema:
+sudo mysql < database/init.sql
+```
+
+5) Install Java 21 (Temurin) and Maven:
+
+```bash
+wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+echo 'deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb stable main' | sudo tee /etc/apt/sources.list.d/adoptium.list
+sudo apt update
+sudo apt install -y temurin-21-jdk maven
+```
+
+6) Install Python 3.12+ and pip:
+
+```bash
+sudo apt install -y python3 python3-pip python3-venv
+```
+
+7) Install Node.js (20.x) and npm:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+8) Install Go (latest stable via snap) and set PATH if needed:
+
+```bash
+sudo snap install --classic go
+export PATH=$PATH:/snap/bin
+```
+
+9) Set required environment variables (example values):
+
+```bash
+export MYSQL_HOST=localhost
+export MYSQL_PORT=3306
+export MYSQL_USER=glacier
+export MYSQL_PASSWORD=glacier
+export MYSQL_DATABASE=glacier_ai
+export JWT_SECRET="change-me-to-a-secure-secret"
+```
+
+10) Start Authentication service (open a new terminal or run in background):
+
+```bash
+cd ~/repo/authentication-service
+# Option A: foreground
+mvn spring-boot:run
+# Option B: background
+# nohup mvn spring-boot:run > ~/auth.log 2>&1 &
+```
+
+11) Start Catalog service:
+
+```bash
+cd ~/repo/catalog-service
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+# foreground
+uvicorn main:app --host 0.0.0.0 --port 3002
+# background
+# nohup uvicorn main:app --host 0.0.0.0 --port 3002 > ~/catalog.log 2>&1 &
+```
+
+12) Start API Gateway:
+
+```bash
+cd ~/repo/apigateway-service
+go run main.go
+# background
+# nohup go run main.go > ~/gateway.log 2>&1 &
+```
+
+13) Start Frontend (Vite dev) or build & serve:
+
+```bash
+cd ~/repo
+npm install
+# dev
+npm run dev
+# or build and serve via a static server
+# npm run build
+# npx serve -s dist -l 80
+```
+
+14) Verify Gateway health:
+
+```bash
+curl http://localhost:8080/health
+```
+
+15) Notes:
+- `database/init.sql` creates required schema and sample data. If import fails run `sudo mysql` and inspect errors.
+- If Spring Boot cannot connect to MySQL, set `SPRING_DATASOURCE_URL`/`SPRING_DATASOURCE_USERNAME`/`SPRING_DATASOURCE_PASSWORD` environment variables before starting it.
+
+
+

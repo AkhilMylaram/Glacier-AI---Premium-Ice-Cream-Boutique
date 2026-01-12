@@ -1,13 +1,10 @@
 {
-  "name": "glacier-ai-monorepo",
-  "version": "1.0.0",
+  "name": "glacier-ai-mesh",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "start:auth": "ts-node authentication-service/auth-controller.ts",
-    "start:gateway": "ts-node apigateway-service/router.ts",
-    "start:catalog": "ts-node catalog-service/product-controller.ts"
+    "build": "vite build"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
@@ -19,7 +16,6 @@
     "@types/react": "^19.2.3",
     "@types/react-dom": "^19.2.3",
     "typescript": "^5.0.0",
-    "ts-node": "^10.9.1",
     "vite": "^5.0.0"
   }
 }

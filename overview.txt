@@ -1,0 +1,73 @@
+GLACIER AI - POLYGLOT MICROSERVICES ARCHITECTURE OVERVIEW
+
+1) PURPOSE
+This repository contains a production-oriented polyglot microservices reference for the "Glacier AI" ice-cream storefront. The goal is a clear, maintainable separation of concerns where the frontend UI remains unchanged and all backend capabilities are implemented as independent services connected through a performant API Gateway.
+
+2) HIGH-LEVEL ARCHITECTURE
+- User -> Frontend UI (Vite/React) -> API Gateway (Go) -> Service routing -> MySQL
+- Services are fully independent processes and can be developed, tested, and deployed separately.
+
+3) SERVICES & RESPONSIBILITIES
+- API Gateway (Go): Edge service that exposes a single port to the UI and routes incoming requests to backend services. Responsible for authentication token verification, request routing, simple rate-limiting hooks, and health checks.
+- Authentication Service (Java / Spring Boot): Handles registration, login, session/token issuance (JWT), user profile, and order history endpoints. Uses modern Java features (JDK 21+), Spring Boot, and connects to MySQL for user and order data.
+- Catalog Service (Python / FastAPI): Manages products, categories, and inventory. Exposes product listing, product detail, and search endpoints. Writes/reads product and order-related information to the same MySQL instance.
+
+4) DATABASE STRATEGY
+- A single, standalone MySQL instance is used as the authoritative datastore. This keeps consistency for user profiles, cart and order history, and product catalog.
+- Schema is normalized into tables such as `users`, `products`, `orders`, `order_items`, and `cart_items`.
+- Services access MySQL directly using their appropriate drivers/ORMs. Authentication service owns user-related tables and exposes user-related APIs. Catalog owns product data but both can read/write related tables where necessary (orders created by Catalog, read by Auth for profile history).
+
+5) DATA FLOW (example: placing an order)
+1. User places order from UI (POST /orders) -> request sent to API Gateway
+2. Gateway authenticates JWT (if required) and forwards to Catalog service
+3. Catalog validates product availability and writes order + order_items into MySQL
+4. Auth service (or Catalog) can be queried for user profile and history; UI reads order history via Gateway -> Auth service
+
+6) TECH SELECTION RATIONALE
+- Go for API Gateway: small binary, low latency, strong concurrency, easy to cross-compile and containerize.
+- Java (Spring Boot) for Auth: mature security ecosystem, statically-typed robustness, excellent support for production monitoring.
+- Python (FastAPI) for Catalog: developer productivity, quick iteration, async I/O for I/O-bound product queries.
+
+7) DEPLOYMENT / LOCAL RUN SUMMARY
+- Each service runs on its own port and can be containerized; `docker-compose.yml` coordinates services and a single MySQL instance for local development.
+
+8) IMPORTANT ENDPOINTS (DEFAULT PORTS)
+- Gateway: GET /health, POST /auth/*, /catalog/* (default 8080)
+- Auth (Java): POST /auth/register, POST /auth/login, GET /users/{id}/orders (default 3001)
+- Catalog (Python): GET /products, GET /products/{id}, POST /orders (default 3002)
+
+9) NEXT STEPS IN THIS REPO
+- Add a robust Go gateway implementation (reverse proxy + routing + JWT middleware)
+- Harden Spring Boot auth service with JWT and MySQL schema migrations
+- Implement FastAPI catalog with sample endpoints and schema migration scripts
+- Provide docker-compose for local dev and a detailed root README with step-by-step run instructions
+
+If you want, I will now implement the Go gateway and a FastAPI-based Catalog service, wire them in `docker-compose.yml`, and update MySQL init scripts and the root `README.md` with exact local-run commands.
+GLACIER AI - POLYGLOT MICROSERVICES ARCHITECTURE OVERVIEW
+
+1. ARCHITECTURAL DESIGN
+This project implements a decoupled, distributed system using three different programming languages to leverage their specific strengths:
+- Go: High-performance concurrency for the API Gateway.
+- Java: Robustness and type-safety for Identity Management (Auth).
+- Python: Rapid development and rich ecosystem for the Product Catalog and Logic.
+
+2. SERVICE TOPOLOGY
+- API GATEWAY (Go @ 8080): The "Edge" of the system. Routes traffic to internal services.
+- AUTH SERVICE (Java @ 3001): Handles secure registration, login, and user profiles.
+- CATALOG SERVICE (Python @ 3002): Manages artisanal products, inventory, and transaction history.
+- DATABASE (MySQL @ 3306): Shared persistent storage with normalized tables.
+
+3. DATA FLOW
+[UI] --(fetch/POST)--> [Go Gateway:8080]
+                            |
+            +---------------+---------------+
+            |                               |
+    [/auth] v                       [/catalog] v
+    [Java Auth:3001]                [Python Catalog:3002]
+            |                               |
+            +------------> [MySQL] <--------+
+
+4. KEY FEATURES
+- Real-time Voice AI: Integrated directly into the frontend via Gemini Live API.
+- Unified Ledger: Orders placed via Python are immediately visible in the Java-authenticated profile.
+- Modern Tooling: Java 21 (Virtual Threads ready), Python 3.12 (FastAPI), Go 1.22 (Standard Library Proxy).

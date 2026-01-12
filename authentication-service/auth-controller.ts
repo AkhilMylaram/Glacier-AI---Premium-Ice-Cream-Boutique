@@ -1,10 +1,7 @@
+
 import { MySqlConnector } from './db/mysql-connector';
 import { User } from '../types';
 
-/**
- * AuthController handles the business logic for identity management.
- * This would be the core of an Express/NestJS service in production.
- */
 export class AuthController {
   static async login(body: any) {
     const users = await MySqlConnector.query<any>(
@@ -22,7 +19,6 @@ export class AuthController {
       throw new Error('Invalid credentials.');
     }
 
-    // Return simulated JWT and clean User Object
     const { password, ...safeUser } = user;
     return { 
       token: 'jwt_secure_session_' + btoa(user.email + Date.now()), 
@@ -44,11 +40,15 @@ export class AuthController {
       id: 'u' + Math.floor(Math.random() * 10000),
       name: body.name,
       email: body.email,
-      password: body.password, // In production, we use Argon2 hashing here
+      password: body.password,
       role: 'customer' as const
     };
 
-    await MySqlConnector.execute('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', [newUser]);
+    // FIXED: Passing an array of primitive values instead of the newUser object
+    await MySqlConnector.execute(
+      'INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', 
+      [newUser.id, newUser.name, newUser.email, newUser.password, newUser.role]
+    );
     
     const { password, ...safeUser } = newUser;
     return { 
